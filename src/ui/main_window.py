@@ -1,6 +1,7 @@
 # ui/main_window.py
 import sys
 import os
+import math
 import threading
 import time
 from typing import cast
@@ -258,11 +259,12 @@ class SubsystemDetailDialog(QDialog):
 
 
 class LinearGauge(QWidget):
-    def __init__(self, title, initial_value=0.0, parent=None):
+    def __init__(self, title, initial_value=0.0, parent=None, decimals=1):
         super().__init__(parent)
         app = QApplication.instance()
         self.is_dark_theme = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
         self.is_uncapped = False
+        self.decimals = int(decimals)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
@@ -271,7 +273,8 @@ class LinearGauge(QWidget):
         self.title_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         self.title_label.setStyleSheet("color: #8b949e; background-color: transparent;")
 
-        self.val_label = QLabel("0.0%")
+        zero_format = f"0.{self.decimals}f%" if self.decimals > 0 else "0%"
+        self.val_label = QLabel(zero_format.replace("0.", "0." if False else "0."))
         self.val_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         self.val_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
@@ -293,11 +296,12 @@ class LinearGauge(QWidget):
         self.value = val_float
         self.is_uncapped = is_uncapped or val_float > 100.0
 
+        display_value = f"{val_float:.{self.decimals}f}"
         if self.is_uncapped and val_float > 100.0:
-            self.val_label.setText(f"{val_float:.1f}% ⚡")
+            self.val_label.setText(f"{display_value}% ⚡")
             self.setToolTip("Uncapped CPU capacity in use (borrowing processing power)")
         else:
-            self.val_label.setText(f"{val_float:.1f}%")
+            self.val_label.setText(f"{display_value}%")
             self.setToolTip("")
 
         self.pbar.setValue(min(100, int(val_float)))
@@ -403,8 +407,8 @@ class LparCardWidget(QFrame):
 
         gauges_layout = QHBoxLayout()
         gauges_layout.setSpacing(8)
-        self.cpu_gauge = LinearGauge("CPU")
-        self.asp_gauge = LinearGauge("ASP")
+        self.cpu_gauge = LinearGauge("CPU", decimals=1)
+        self.asp_gauge = LinearGauge("ASP", decimals=2)
         gauges_layout.addWidget(self.cpu_gauge, stretch=1)
         gauges_layout.addWidget(self.asp_gauge, stretch=1)
         self.main_layout.addLayout(gauges_layout)
@@ -693,6 +697,7 @@ class LparCardWidget(QFrame):
 
         status = str(data.get("status", "OFFLINE")).upper()
         error_reason = str(data.get("error") or "")
+        completed_at = str(data.get("completed_at") or "").strip()
         cpu = float(data.get("cpu", 0.0))
         asp = float(data.get("asp", 0.0))
         jobs = int(data.get("jobs", 0))
@@ -707,7 +712,9 @@ class LparCardWidget(QFrame):
             asp = last_asp
             jobs = last_jobs
         elif status in ("ONLINE", "DEGRADED"):
-            if self.last_success_ts is None or self.current_status not in ("ONLINE", "DEGRADED"):
+            if completed_at:
+                self.last_success_ts = completed_at
+            elif self.last_success_ts is None or self.current_status not in ("ONLINE", "DEGRADED"):
                 self.last_success_ts = time.strftime("%H:%M:%S")
             self.last_error_reason = ""
 
@@ -722,8 +729,8 @@ class LparCardWidget(QFrame):
 
         signature = (
             status,
-            round(cpu, 1),
-            round(asp, 1),
+            cpu,
+            asp,
             int(jobs),
             repr(subsystems),
             repr(ports),
@@ -792,11 +799,11 @@ class LparCardWidget(QFrame):
                     f"color: {status_color}; font-weight: bold; background-color: transparent;"
                 )
 
-        if abs(self.cpu_gauge.value - cpu) > 0.5:
+        if not math.isclose(self.cpu_gauge.value, cpu, rel_tol=0.0, abs_tol=1e-9):
             self.cpu_gauge.set_value(cpu, is_uncapped=is_uncapped)
-        if abs(self.asp_gauge.value - asp) > 0.5:
+        if not math.isclose(self.asp_gauge.value, asp, rel_tol=0.0, abs_tol=1e-9):
             self.asp_gauge.set_value(asp)
-        if not self.sparkline.cpu_history or abs(self.sparkline.cpu_history[-1] - cpu) > 0.5 or abs(self.sparkline.asp_history[-1] - asp) > 0.5:
+        if not self.sparkline.cpu_history or not math.isclose(self.sparkline.cpu_history[-1], cpu, rel_tol=0.0, abs_tol=1e-9) or not math.isclose(self.sparkline.asp_history[-1], asp, rel_tol=0.0, abs_tol=1e-9):
             self.sparkline.add_values(cpu, asp)
 
         jobs_text = f"{jobs:,}"
@@ -1050,7 +1057,7 @@ class IBMiDashboard(QMainWindow):
 
         self.thread_pool = cast(QThreadPool, QThreadPool.globalInstance())
         self.thread_pool.setMaxThreadCount(8)
-        self.min_refresh_interval_ms = 10000  # Minimum 10s between refreshes per server
+        self.min_refresh_interval_ms = 5000  # Refresh live ASP/CPU data every 5s for near real-time monitoring
         self.refresh_interval_ms = self.min_refresh_interval_ms
         self.server_refresh_timers = {}  # Per-server refresh timers for independent refresh
         self._refresh_in_progress = False
@@ -1109,7 +1116,6 @@ class IBMiDashboard(QMainWindow):
     def _show_sync_loading(self, message="Syncing data..."):
         self.status_label.setText(f"Status: {message}")
         self.status_label.setStyleSheet("color: #8b949e; font-size: 11px; background-color: transparent;")
-        QApplication.processEvents()
 
     def _hide_sync_loading(self):
         if self.is_monitoring:
@@ -1525,8 +1531,6 @@ class IBMiDashboard(QMainWindow):
         )
         loading_dialog.show()
 
-        QCoreApplication.processEvents()
-
         self.setUpdatesEnabled(False)
         try:
             self.is_dark_theme = not self.is_dark_theme
@@ -1803,7 +1807,8 @@ class IBMiDashboard(QMainWindow):
             card.last_error_reason = self.server_error_reasons.get(config_key, str(lpar_data.get("error") or ""))
             card.sync_duration_ms = int(self.server_sync_durations_ms.get(config_key, 0))
             if str(lpar_data.get("status", "OFFLINE")).upper() in ("ONLINE", "DEGRADED"):
-                card.last_success_ts = time.strftime("%H:%M:%S")
+                completed_at = str(lpar_data.get("completed_at") or "").strip()
+                card.last_success_ts = completed_at or time.strftime("%H:%M:%S")
             card.update_data(lpar_data)
             card._sync_health_summary()
 
@@ -1835,18 +1840,16 @@ class IBMiDashboard(QMainWindow):
         if self.auto_refresh_paused and not force:
             return
 
-        if self._refresh_in_progress:
-            self._refresh_queued = True
-            return
-
         if not getattr(self.log_viewer_widget, 'active_lpars', None):
             self.log_viewer_widget.active_lpars = sorted({
                 self.log_viewer_widget._normalize_server_name(name)
                 for name in self.active_server_configs.keys()
                 if self.log_viewer_widget._normalize_server_name(name)
             })
-        self._refresh_in_progress = True
-        self._show_sync_loading("Syncing data...")
+
+        self._refresh_in_progress = False
+        self._refresh_queued = False
+        self._show_sync_loading("Starting independent server refreshes...")
         self.last_refresh_started_at = time.monotonic()
 
         username = self.user_input.text().strip()
@@ -1861,32 +1864,21 @@ class IBMiDashboard(QMainWindow):
 
         self.completed_threads_count = 0
         self.pending_lpar_count = len(self.active_server_configs)
-        cycle_id = self.refresh_generation
         self.latest_results_cache = {}
         self.active_runnables.clear()
+
+        for timer in list(self.server_refresh_timers.values()):
+            timer.stop()
+            timer.deleteLater()
+        self.server_refresh_timers.clear()
 
         for _, card in self.card_widgets.items():
             card.set_status("SYNCING")
 
-        for server_name, cfg in self.active_server_configs.items():
-            runnable = SingleLparRunnable(
-                server_name,
-                cfg,
-                username,
-                password,
-                cancel_event=threading.Event(),
-                signal_parent=self,
-            )
-            self.active_runnables.add(runnable)
-            runnable.signals.server_fetched.connect(
-                lambda data, generation=cycle_id, task=runnable:
-                    self.on_single_lpar_fetched(data, generation, task)
-            )
-            runnable.signals.server_failed.connect(
-                lambda data, generation=cycle_id, task=runnable:
-                    self.on_single_lpar_failed(data, generation, task)
-            )
-            self.thread_pool.start(runnable)
+        for server_name in self.active_server_configs.keys():
+            self._refresh_single_server(server_name)
+
+        self._hide_sync_loading()
 
     def on_single_lpar_failed(self, failure, generation, runnable):
         self.active_runnables.discard(runnable)
@@ -1922,7 +1914,8 @@ class IBMiDashboard(QMainWindow):
             card.last_error_reason = self.server_error_reasons.get(config_key, str(lpar_data.get("error") or ""))
             card.sync_duration_ms = int(self.server_sync_durations_ms.get(config_key, 0))
             if str(lpar_data.get("status", "OFFLINE")).upper() in ("ONLINE", "DEGRADED"):
-                card.last_success_ts = time.strftime("%H:%M:%S")
+                completed_at = str(lpar_data.get("completed_at") or "").strip()
+                card.last_success_ts = completed_at or time.strftime("%H:%M:%S")
             card.update_data(lpar_data)
             card._sync_health_summary()
 

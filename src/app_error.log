@@ -2253,3 +2253,471 @@ Traceback (most recent call last):
     runnable.signals.server_fetched.emit(result)
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 880, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 880, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 880, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 880, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 880, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 880, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 880, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 880, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 864, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 645, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 882, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 644, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 898, in run
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 898, in run
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 898, in run
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 898, in run
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 898, in run
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 898, in run
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 898, in run
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 898, in run
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 643, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 916, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 646, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 952, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 688, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 952, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 688, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 952, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 688, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+Fatal startup crash: name 'GlobalAlertsWidget' is not defined
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\main.py", line 73, in main
+    window = ui.main_window.IBMiDashboard()
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1060, in __init__
+    self.init_live_monitor_ui()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1202, in init_live_monitor_ui
+    self.global_alerts = GlobalAlertsWidget()
+                         ^^^^^^^^^^^^^^^^^^
+NameError: name 'GlobalAlertsWidget' is not defined
+
+Fatal startup crash: name 'GlobalAlertsWidget' is not defined
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\main.py", line 73, in main
+    window = ui.main_window.IBMiDashboard()
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1060, in __init__
+    self.init_live_monitor_ui()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1202, in init_live_monitor_ui
+    self.global_alerts = GlobalAlertsWidget()
+                         ^^^^^^^^^^^^^^^^^^
+NameError: name 'GlobalAlertsWidget' is not defined
+
+Fatal startup crash: 'LparCardWidget' object has no attribute 'down_count_lbl'
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\main.py", line 73, in main
+    window = ui.main_window.IBMiDashboard()
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1256, in __init__
+    self.init_live_monitor_ui()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1470, in init_live_monitor_ui
+    self.rebuild_server_cards()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1816, in rebuild_server_cards
+    card = LparCardWidget(srv)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 455, in __init__
+    self.set_theme(self.is_dark_theme)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 920, in set_theme
+    self.down_count_lbl.setStyleSheet(f"color: {red_color}; background-color: transparent;")
+    ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'LparCardWidget' object has no attribute 'down_count_lbl'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 953, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 688, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 953, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 688, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 953, in run
+    _persist_and_emit(self, result)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\worker.py", line 688, in _persist_and_emit
+    runnable.signals.server_fetched.emit(result)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted

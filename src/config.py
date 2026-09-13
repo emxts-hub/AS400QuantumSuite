@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 
 APP_NAME = "IBMi_Dashboard"
-APP_VERSION = "3.1.5"
+APP_VERSION = "4.0.0"
 USER_PROFILE = os.environ.get("USERPROFILE") or os.path.expanduser("~")
 ONEDRIVE_SHAREPOINT_PATH = os.path.join(
     USER_PROFILE,
@@ -67,6 +67,15 @@ def get_config_path():
     return os.path.join(get_app_data_dir(), "config.json")
 
 LEGACY_LOGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+
+
+def _fallback_json_path(file_path: str) -> str:
+    """Return the local fallback path used when the preferred Onedrive file is locked."""
+    file_path = os.path.normpath(file_path)
+    legacy_dir = os.path.normpath(LEGACY_LOGS_DIR)
+    if os.path.dirname(file_path) == legacy_dir:
+        return file_path
+    return os.path.join(legacy_dir, os.path.basename(file_path))
 
 
 def _year_log_root():
@@ -164,6 +173,7 @@ DEFAULT_EMAIL_ALERTS = {
     "to_addresses": [],
     "threshold_percent": 40,
     "cooldown_minutes": 10,
+    "refresh_interval_ms": 0,
 }
 
 
@@ -337,31 +347,45 @@ def load_email_alerts():
     return merged
 
 
-def safe_json_save(file_path: str, data) -> bool:
-    """Safely saves data to a JSON file using atomic file replacement to prevent OneDrive sync locks."""
-    temp_path = f"{file_path}.{uuid.uuid4().hex}.tmp"
+def _atomic_write_json(target_path: str, payload) -> bool:
+    """Write JSON to a destination path with an atomic replace and clean up temps on any error."""
+    os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
+    temp_path = f"{target_path}.{uuid.uuid4().hex}.tmp"
     try:
         with open(temp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4)
+            json.dump(payload, f, indent=2)
             f.flush()
             os.fsync(f.fileno())
-            
-        os.replace(temp_path, file_path)
+        os.replace(temp_path, target_path)
         return True
     except Exception as err:
-        print(f"[safe_json_save] Error writing file {file_path}: {err}")
+        print(f"[safe_json_save] Error writing file {target_path}: {err}")
         if os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
             except OSError:
                 pass
-        return False
+        raise
+
+
+def safe_json_save(file_path: str, data) -> bool:
+    """Safely saves data to a JSON file using atomic file replacement to prevent OneDrive sync locks."""
+    target_path = file_path
+    try:
+        return _atomic_write_json(target_path, data)
+    except Exception as err:
+        fallback_path = _fallback_json_path(file_path)
+        if os.path.normpath(fallback_path) == os.path.normpath(file_path):
+            return False
+        try:
+            return _atomic_write_json(fallback_path, data)
+        except Exception as fallback_err:
+            print(f"[safe_json_save] Fallback save failed for {fallback_path}: {fallback_err}")
+            return False
 
 
 def safe_json_append_and_save(file_path: str, new_entry: dict, max_retries: int = 20) -> bool:
     """Re-reads the latest file on disk right before writing to ensure no concurrent records are lost."""
-    temp_path = f"{file_path}.{uuid.uuid4().hex}.tmp"
-
     for attempt in range(max_retries):
         try:
             existing_data = []
@@ -374,25 +398,33 @@ def safe_json_append_and_save(file_path: str, new_entry: dict, max_retries: int 
                     except json.JSONDecodeError:
                         return False
 
-            # Append new entry to the fresh disk state
             existing_data.append(new_entry)
+            if _atomic_write_json(file_path, existing_data):
+                return True
+            return False
 
-            with open(temp_path, "w", encoding="utf-8") as f:
-                json.dump(existing_data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-
-            os.replace(temp_path, file_path)
-            return True
-
-        except Exception as err:
+        except Exception:
             # OneDrive may briefly hold the daily file during synchronization.
             time.sleep(min(1.0, 0.15 * (attempt + 1)))
-            if os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except OSError:
-                    pass
+
+    fallback_path = _fallback_json_path(file_path)
+    if os.path.normpath(fallback_path) != os.path.normpath(file_path):
+        try:
+            os.makedirs(os.path.dirname(fallback_path), exist_ok=True)
+            current_data = []
+            if os.path.exists(fallback_path):
+                with open(fallback_path, "r", encoding="utf-8") as f:
+                    try:
+                        current_data = json.load(f) or []
+                        if not isinstance(current_data, list):
+                            current_data = [current_data]
+                    except json.JSONDecodeError:
+                        current_data = []
+            current_data.append(new_entry)
+            return _atomic_write_json(fallback_path, current_data)
+        except Exception as fallback_err:
+            print(f"[safe_json_append_and_save] Fallback save failed for {fallback_path}: {fallback_err}")
+            return False
 
     return False
 

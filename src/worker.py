@@ -8,6 +8,7 @@ import time
 import uuid
 import subprocess
 import smtplib
+import queue
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 import pyodbc
@@ -27,6 +28,8 @@ from config import (
 _LOG_WRITE_LOCK = threading.Lock()
 _LOG_MUTEX_NAME = "Local\\WinMacOS_DailyLogWrite"
 _LOG_MUTEX_WAIT_MS = 30000
+_LOG_QUEUE = queue.Queue()
+_LOGGER_THREAD = None
 _ALERT_STATE_LOCK = threading.Lock()
 _LAST_ASP_ALERT_STATE = {}
 _LAST_ASP_SOUND_STATE = {"armed": False, "sent_at": 0.0}
@@ -34,6 +37,45 @@ _LAST_ASP_EMAIL_STATE = {}
 _ALERT_SOUND_STOP_EVENT = threading.Event()
 _ALERT_SOUND_PROCESSES = set()
 _ALERT_SOUND_PROCESS_LOCK = threading.Lock()
+
+
+def _logger_worker():
+    """Serializes log writes in a dedicated background thread so the UI remains responsive."""
+    while True:
+        item = _LOG_QUEUE.get()
+        if item is None:
+            _LOG_QUEUE.task_done()
+            break
+
+        sys_info, server_configs = item
+        try:
+            save_single_lpar_log(sys_info, server_configs)
+        except Exception:
+            pass
+        finally:
+            _LOG_QUEUE.task_done()
+
+
+def _start_logger_worker():
+    global _LOGGER_THREAD
+    if _LOGGER_THREAD is not None and _LOGGER_THREAD.is_alive():
+        return
+    _LOGGER_THREAD = threading.Thread(target=_logger_worker, name="WinMacOS-LogWriter", daemon=True)
+    _LOGGER_THREAD.start()
+
+
+def queue_log_persistence(sys_info, server_configs=None):
+    """Queue a log write so refreshes stay responsive on the UI thread."""
+    if sys_info is None:
+        return
+    _start_logger_worker()
+    try:
+        _LOG_QUEUE.put_nowait((sys_info, server_configs or SERVER_CONFIGS))
+    except Exception:
+        try:
+            save_single_lpar_log(sys_info, server_configs)
+        except Exception:
+            pass
 
 
 def _new_connection(host, db, username, password):
@@ -48,8 +90,9 @@ def _new_connection(host, db, username, password):
         f"SYSTEM={host};"
         f"UID={username};"
         f"PWD={password};"
-        f"SSL=0;"
         f"DATABASE={db};"
+        f"PREFETCH=1;"
+        f"BLOCKFETCH=1;"
         f"CONN_TIMEOUT=3;"
         f"QUERY_TIMEOUT=3;"
         f"{extra_params}",
@@ -529,25 +572,28 @@ def _save_single_lpar_log(sys_info, server_configs=None):
     server_name = resolved_name if str(resolved_name).strip() and not re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", str(resolved_name).strip()) else config_key
     server_name = str(server_name).strip() or config_key
 
+    issue_present = _has_server_issues(sys_info, configs)
+
     try:
-        existing_data = []
-        if os.path.exists(filepath):
-            with open(filepath, "r", encoding="utf-8") as f:
-                existing_data = json.load(f) or []
-                if not isinstance(existing_data, list):
-                    existing_data = [existing_data]
-        current_hour_prefix = now.strftime("%Y-%m-%d %H")
-        for entry in existing_data:
-            if not isinstance(entry, dict):
-                continue
-            for rec in entry.get("records", []):
-                if not isinstance(rec, dict):
+        if not issue_present:
+            existing_data = []
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
+                    existing_data = json.load(f) or []
+                    if not isinstance(existing_data, list):
+                        existing_data = [existing_data]
+            current_hour_prefix = now.strftime("%Y-%m-%d %H")
+            for entry in existing_data:
+                if not isinstance(entry, dict):
                     continue
-                rec_server = str(rec.get("server") or rec.get("lpar") or rec.get("config_key") or "").strip()
-                rec_ts = str(rec.get("timestamp") or "").strip()
-                if rec_server == server_name and rec_ts.startswith(current_hour_prefix):
-                    _merge_and_remove_conflict_logs(filepath, date_str)
-                    return "already_recorded"
+                for rec in entry.get("records", []):
+                    if not isinstance(rec, dict):
+                        continue
+                    rec_server = str(rec.get("server") or rec.get("lpar") or rec.get("config_key") or "").strip()
+                    rec_ts = str(rec.get("timestamp") or "").strip()
+                    if rec_server == server_name and rec_ts.startswith(current_hour_prefix):
+                        _merge_and_remove_conflict_logs(filepath, date_str)
+                        return "already_recorded"
     except json.JSONDecodeError:
         return "failed"
     except OSError:
@@ -640,12 +686,13 @@ def _save_single_lpar_log(sys_info, server_configs=None):
 
 def _persist_and_emit(runnable, result):
     runnable.signals.server_fetched.emit(result)
-    persistence_status = save_single_lpar_log(result, SERVER_CONFIGS)
-    if persistence_status not in ("saved", "already_recorded"):
+    try:
+        queue_log_persistence(result, SERVER_CONFIGS)
+    except Exception as exc:
         print(
-            f"[{runnable.server}] Live result emitted, but log persistence "
-            f"returned {persistence_status}."
+            f"[{runnable.server}] Live result emitted, but log persistence failed: {exc}"
         )
+        return
 
 
 class LparWorkerSignals(QObject):
@@ -695,7 +742,7 @@ class SingleLparRunnable(QRunnable):
 
             system_name = self.server
             try:
-                cursor.execute("SELECT HOST_NAME FROM QSYS2.SYSTEM_STATUS_INFO")
+                cursor.execute("SELECT SUBSTR(HOST_NAME, GREATEST(LOCATE('JDAD', HOST_NAME), LOCATE('JDAP', HOST_NAME)), 6) AS HOST_NAME FROM SYSIBMADM.ENV_SYS_INFO")
                 row = cursor.fetchone()
                 if row and row[0] is not None:
                     resolved_name = str(row[0]).strip()
@@ -712,11 +759,12 @@ class SingleLparRunnable(QRunnable):
             try:
                 cursor.execute(
                     """
-                    SELECT
-                        (SELECT COUNT(*) FROM TABLE(QSYS2.ACTIVE_JOB_INFO(RESET_STATISTICS => 'NO'))) AS ACTIVE_JOBS,
-                        (SELECT SYSTEM_ASP_USED FROM QSYS2.SYSTEM_STATUS_INFO) AS ASP_USED,
-                        (SELECT ROUND(AVERAGE_CPU_UTILIZATION, 2) FROM TABLE(QSYS2.SYSTEM_ACTIVITY_INFO())) AS CPU_UTIL
-                    FROM SYSIBM.SYSDUMMY1
+                    SELECT 
+                    (SELECT COUNT(*) FROM TABLE(QSYS2.ACTIVE_JOB_INFO(DETAILED_INFO => 'NONE'))) AS ACTIVE_JOBS,
+                    SYSTEM_ASP_USED AS ASP_USED,
+                    (SELECT ROUND(AVERAGE_CPU_UTILIZATION, 2) 
+                    FROM TABLE(QSYS2.SYSTEM_ACTIVITY_INFO())) AS CPU_UTIL
+                    FROM QSYS2.SYSTEM_STATUS_INFO_BASIC
                     WITH NC
                     """
                 )
@@ -725,7 +773,7 @@ class SingleLparRunnable(QRunnable):
                     if combined_row[0] is not None:
                         active_jobs = int(combined_row[0])
                     if combined_row[1] is not None:
-                        asp_used = float(round(combined_row[1], 2))
+                        asp_used = float(combined_row[1])
                     if combined_row[2] is not None:
                         cpu_util = float(combined_row[2])
             except Exception as e:
@@ -739,7 +787,7 @@ class SingleLparRunnable(QRunnable):
                     cursor.execute("SELECT PERCENT_PROCESSING_UNIT_USED FROM QSYS2.SYSTEM_ASP_INFO")
                     asp_row = cursor.fetchone()
                     if asp_row and asp_row[0] is not None:
-                        asp_used = float(round(asp_row[0], 2))
+                        asp_used = float(asp_row[0])
                 except Exception as e:
                     metric_errors.append(f"ASP fallback: {e}")
 
@@ -771,6 +819,26 @@ class SingleLparRunnable(QRunnable):
             except Exception as e:
                 metric_errors.append(f"subsystems: {e}")
 
+            expected_key = self.cfg.get("expected_subsystems_key", self.server) if isinstance(self.cfg, dict) else self.server
+            expected_subs = EXPECTED_SUBSYSTEMS.get(expected_key, [])
+            if isinstance(expected_subs, dict):
+                expected_names = {str(name).strip().upper() for name in expected_subs.keys() if str(name).strip()}
+            elif isinstance(expected_subs, (list, tuple, set)):
+                expected_names = {str(name).strip().upper() for name in expected_subs if str(name).strip()}
+            else:
+                expected_names = set()
+
+            active_names = {str(sub.get("name", "")).strip().upper() for sub in active_subsystems if isinstance(sub, dict) and sub.get("name")}
+            for expected_name in sorted(expected_names):
+                if expected_name not in active_names:
+                    active_subsystems.append({
+                        "name": expected_name,
+                        "status": "DOWN",
+                        "active_jobs": 0,
+                        "library": "",
+                        "description": "Subsystem Stopped / Down"
+                    })
+
             if self.check_cancelled():
                 return
 
@@ -792,10 +860,15 @@ class SingleLparRunnable(QRunnable):
                     placeholders = ", ".join("?" for _ in requested_ports)
                     cursor.execute(
                         f"""
-                        SELECT LOCAL_PORT
-                        FROM QSYS2.NETSTAT_INFO
-                        WHERE TCP_STATE = 'LISTEN'
-                          AND LOCAL_PORT IN ({placeholders})
+                        WITH FILTERED_PORTS AS (
+                            SELECT LOCAL_PORT, TCP_STATE
+                            FROM QSYS2.NETSTAT_INFO
+                            WHERE LOCAL_PORT IN ({placeholders})
+                        )
+                            SELECT DISTINCT LOCAL_PORT
+                            FROM FILTERED_PORTS
+                            WHERE TCP_STATE = 'LISTEN'
+                            ORDER BY LOCAL_PORT
                         """,
                                                 *requested_ports,
                     )
@@ -872,6 +945,7 @@ class SingleLparRunnable(QRunnable):
 
         if not self.is_cancelled():
             result["sync_duration_ms"] = max(0, int((time.monotonic() - started_at) * 1000))
+            result["completed_at"] = time.strftime("%H:%M:%S")
             try:
                 maybe_send_asp_alert(str(result.get("server") or self.server), float(result.get("asp", 0.0) or 0.0))
             except Exception:

@@ -11,3 +11,4 @@ logs/
 *.spec
 .venv
 config.txt
+tests/

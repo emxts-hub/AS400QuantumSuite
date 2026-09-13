@@ -238,7 +238,7 @@ class CircularGauge(QWidget):
         painter.setPen(QColor("#ffffff"))
         painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         text_rect = QRectF(x, y, gauge_size, gauge_size)
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, f"{self.value:.1f}%")
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, f"{self.value:.2f}%")
 
 
 class ItemDetailDialog(QDialog):
@@ -418,11 +418,19 @@ class SubsystemGridWidget(QWidget):
             for item in EXPECTED_SUBSYSTEMS.get(expected_key, [])
         ]
 
-        names = [
-            normalize_name(sub["name"] if isinstance(sub, dict) else sub)
-            for sub in active_subsystems
-        ]
-        self.active_set = set(name for name in names if name)
+        active_names = []
+        for sub in active_subsystems:
+            if isinstance(sub, dict):
+                name = normalize_name(sub.get("name"))
+                status = str(sub.get("status", "ACTIVE")).upper()
+                if name and status == "ACTIVE":
+                    active_names.append(name)
+            else:
+                name = normalize_name(sub)
+                if name:
+                    active_names.append(name)
+
+        self.active_set = set(active_names)
 
         if self.expected_subs:
             expected_running_count = sum(1 for s in self.expected_subs if s in self.active_set)

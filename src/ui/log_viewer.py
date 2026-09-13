@@ -193,9 +193,10 @@ class LogViewerWidget(QWidget):
         self.log_data_store = {}
         self.monthly_report_widget = None
         self._processed_batches = set()
-        self.max_history_days = 45
+        self.max_history_days = 30
         self.max_batches_per_day = 300
         self.max_total_batches = 1200
+        self.log_buffer_limit = 50
         self.active_lpars = []
         self.section_headers = []
         self._history_loading = False
@@ -276,6 +277,19 @@ class LogViewerWidget(QWidget):
         self.date_combo.currentIndexChanged.connect(self.on_date_changed)
         header_bar.addWidget(self.date_combo)
 
+        buffer_lbl = QLabel("Log Buffer:")
+        buffer_lbl.setFont(self._make_font("Segoe UI", 10, QFont.Weight.Bold))
+        buffer_lbl.setStyleSheet("color: #8b949e;")
+        header_bar.addWidget(buffer_lbl)
+
+        self.buffer_combo = QComboBox()
+        self.buffer_combo.setFixedWidth(90)
+        self.buffer_combo.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.buffer_combo.addItems(["50", "100", "150", "200", "250", "300", "All"])
+        self.buffer_combo.setCurrentText("50")
+        self.buffer_combo.currentIndexChanged.connect(self.on_buffer_changed)
+        header_bar.addWidget(self.buffer_combo)
+
         btn_export = QPushButton("Export Excel")
         btn_export.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         btn_export.setStyleSheet("""
@@ -341,14 +355,24 @@ class LogViewerWidget(QWidget):
 
         self._setup_file_watcher()
 
-        # 1-Second Auto Refresh Timer (runs silently without popping the overlay)
+        # Slow, coalesced background refresh so the UI does not re-scan the log tree every second.
         self.auto_refresh_timer = QTimer(self)
-        self.auto_refresh_timer.setInterval(1000)
-        self.auto_refresh_timer.timeout.connect(lambda: self.load_log_history(silent=True))
+        self.auto_refresh_timer.setInterval(10000)
+        self.auto_refresh_timer.timeout.connect(self._refresh_log_viewer_if_needed)
         self.auto_refresh_timer.start()
 
         # Initial loading call (shows overlay on app boot)
         QTimer.singleShot(50, lambda: self.load_log_history(silent=False))
+
+    def _refresh_log_viewer_if_needed(self):
+        if self._history_loading:
+            return
+        self.load_log_history(silent=True)
+
+    def on_buffer_changed(self):
+        value = self.buffer_combo.currentText()
+        self.log_buffer_limit = None if value == "All" else int(value)
+        self.populate_views()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -718,12 +742,12 @@ class LogViewerWidget(QWidget):
                 if lpar in asp_matrix:
                     asp_val = rec.get("asp")
                     if isinstance(asp_val, (int, float)):
-                        asp_matrix[lpar][hour_idx] = f"{asp_val:.1f}%"
+                        asp_matrix[lpar][hour_idx] = f"{asp_val:.2f}%"
                         seen_usage_slots.add((lpar, hour_idx))
 
                     cpu_val = rec.get("cpu")
                     if isinstance(cpu_val, (int, float)):
-                        cpu_matrix[lpar][hour_idx] = f"{cpu_val:.1f}%"
+                        cpu_matrix[lpar][hour_idx] = f"{cpu_val:.2f}%"
                         seen_usage_slots.add((lpar, hour_idx))
 
         self._fill_matrix(self.asp_table, asp_matrix)
@@ -796,7 +820,7 @@ class LogViewerWidget(QWidget):
         flat_records = []
         lpar_order = {lpar: i for i, lpar in enumerate(self.active_lpars)}
 
-        for ts, records in reversed(day_batches):
+        for ts, records in day_batches:
             sorted_batch_records = sorted(
                 records,
                 key=lambda r: lpar_order.get(
@@ -823,6 +847,18 @@ class LogViewerWidget(QWidget):
                 if lpar in lpar_order or not lpar_order:
                     flat_records.append((ts, rec))
 
+        def _sort_key(item):
+            ts_value = item[1].get("timestamp") or item[0] or "1970-01-01 00:00:00"
+            try:
+                return datetime.strptime(str(ts_value)[:19], "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                return datetime.min
+
+        flat_records.sort(key=_sort_key, reverse=True)
+
+        if self.log_buffer_limit is not None and self.log_buffer_limit > 0:
+            flat_records = flat_records[: self.log_buffer_limit]
+
         self.stream_table.setRowCount(len(flat_records))
 
         for row, (ts, rec) in enumerate(flat_records):
@@ -844,8 +880,8 @@ class LogViewerWidget(QWidget):
             self.stream_table.setItem(row, 1, self._table_item(lpar, bold=True))
             self.stream_table.setItem(row, 2, self._table_item(ip))
 
-            cpu_str = f"{cpu:.1f}%" if isinstance(cpu, (int, float)) else str(cpu)
-            asp_str = f"{asp:.1f}%" if isinstance(asp, (int, float)) else str(asp)
+            cpu_str = f"{cpu:.2f}%" if isinstance(cpu, (int, float)) else str(cpu)
+            asp_str = f"{asp:.2f}%" if isinstance(asp, (int, float)) else str(asp)
             self.stream_table.setItem(row, 3, self._table_item(cpu_str))
             self.stream_table.setItem(row, 4, self._table_item(asp_str))
 
@@ -896,7 +932,13 @@ class LogViewerWidget(QWidget):
             self.stream_table.setCellWidget(row, 6, badge_container)
 
             down_str = self._format_subsystems_list(down)
-            self.stream_table.setItem(row, 7, self._table_item(down_str or "None"))
+            down_cell_item = self._table_item(down_str or "None")
+            if down_str and str(down_str).strip().lower() != "none":
+                down_cell_item.setForeground(QColor("#f85149"))
+                down_cell_item.setFont(self._make_font("Segoe UI", 9, QFont.Weight.Bold))
+            else:
+                down_cell_item.setForeground(QColor("#8b949e"))
+            self.stream_table.setItem(row, 7, down_cell_item)
 
     def _table_item(self, text, bold=False, color=None):
         if color is None:

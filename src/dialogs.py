@@ -270,6 +270,23 @@ class LparSettingsDialog(QDialog):
         h_thresh.addStretch()
         email_layout.addLayout(h_thresh)
 
+        h_refresh = QHBoxLayout()
+        h_refresh.addWidget(QLabel("Refresh Interval:"))
+        self.refresh_interval_combo = QComboBox()
+        self.refresh_interval_combo.addItems(["Instantly", "3s", "5s", "10s"])
+        current_interval_ms = int(email_cfg.get("refresh_interval_ms", 0) or 0)
+        if current_interval_ms == 0:
+            self.refresh_interval_combo.setCurrentIndex(0)
+        elif current_interval_ms == 3000:
+            self.refresh_interval_combo.setCurrentIndex(1)
+        elif current_interval_ms == 5000:
+            self.refresh_interval_combo.setCurrentIndex(2)
+        else:
+            self.refresh_interval_combo.setCurrentIndex(3)
+        h_refresh.addWidget(self.refresh_interval_combo)
+        h_refresh.addStretch()
+        email_layout.addLayout(h_refresh)
+
         email_group.setLayout(email_layout)
 
         # LPAR tab
@@ -548,6 +565,14 @@ class LparSettingsDialog(QDialog):
         except Exception:
             cooldown_minutes = 10
 
+        refresh_interval_map = {
+            "Instantly": 0,
+            "3s": 3000,
+            "5s": 5000,
+            "10s": 10000,
+        }
+        refresh_interval_ms = refresh_interval_map.get(self.refresh_interval_combo.currentText(), 0)
+
         # Basic email validation
         if from_address and not self._is_valid_email(from_address):
             QMessageBox.warning(self, "Invalid From Address", "Please enter a valid From email address.")
@@ -571,6 +596,7 @@ class LparSettingsDialog(QDialog):
             "to_addresses": to_addresses,
             "threshold_percent": threshold_percent,
             "cooldown_minutes": cooldown_minutes,
+            "refresh_interval_ms": refresh_interval_ms,
         }
 
         # Attempt to save — save_all_configs will securely persist password if possible
