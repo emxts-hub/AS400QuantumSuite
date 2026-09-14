@@ -5,7 +5,7 @@ import uuid
 import time
 from datetime import datetime, timezone
 
-APP_NAME = "AS/400 Quantum Suite"
+APP_NAME = "AS400 Quantum Suite"
 APP_VERSION = "4.1.0"
 USER_PROFILE = os.environ.get("USERPROFILE") or os.path.expanduser("~")
 ONEDRIVE_SHAREPOINT_PATH = os.path.join(
