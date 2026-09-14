@@ -143,15 +143,26 @@ def get_resource_path(relative_path):
     """Returns the best available path to a bundled resource, including dev, frozen, and user-data locations."""
     candidates = []
 
+    def add_candidate(*parts):
+        candidate = os.path.normpath(os.path.join(*parts))
+        if candidate not in candidates:
+            candidates.append(candidate)
+
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
-        candidates.append(os.path.join(meipass, relative_path))
+        add_candidate(meipass, relative_path)
+        add_candidate(meipass, "src", relative_path)
     elif getattr(sys, "frozen", False):
-        candidates.append(os.path.join(os.path.dirname(sys.executable), relative_path))
+        add_candidate(os.path.dirname(sys.executable), relative_path)
+        add_candidate(os.path.dirname(sys.executable), "src", relative_path)
 
-    candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path))
-    candidates.append(os.path.join(os.getcwd(), relative_path))
-    candidates.append(os.path.join(get_app_data_dir(), relative_path))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    add_candidate(script_dir, relative_path)
+    add_candidate(script_dir, "src", relative_path)
+    add_candidate(os.getcwd(), relative_path)
+    add_candidate(os.getcwd(), "src", relative_path)
+    add_candidate(get_app_data_dir(), relative_path)
+    add_candidate(get_app_data_dir(), "src", relative_path)
 
     for candidate in candidates:
         if os.path.exists(candidate):

@@ -27,16 +27,16 @@ jobs:
 
       - name: Build Executable with PyInstaller
         run: |
-          pyinstaller --noconsole --onedir --noupx --clean --name WinMacOS --paths=src --add-data "src/warning.wav;src" --icon=src/logo.ico --collect-all PyQt6 src/main.py
+          pyinstaller --noconsole --onedir --noupx --clean --name "AS400 Quantum Suite" --paths=src --add-data "src/warning.wav;src" --add-data "src/logo.png;src" --icon=src/logo.ico --collect-all PyQt6 src/main.py
 
       - name: Sign PyInstaller Output Binaries
         shell: powershell
         run: |
           # Create a self-signed code-signing certificate
-          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=WinMacOS Code Signing" -CertStoreLocation "Cert:\CurrentUser\My"
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=AS400 Quantum Suite Code Signing" -CertStoreLocation "Cert:\CurrentUser\My"
           
           # Sign all executable and DLL files (including PyQt6 binaries) to pass AppLocker/WDAC policy checks
-          Get-ChildItem -Path "dist\WinMacOS" -Recurse -Include *.exe, *.dll, *.pyd | ForEach-Object {
+          Get-ChildItem -Path "dist\AS400 Quantum Suite" -Recurse -Include *.exe, *.dll, *.pyd | ForEach-Object {
               Set-AuthenticodeSignature -FilePath $_.FullName -Certificate $cert
           }
 
@@ -55,6 +55,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/WinMacOS-Setup.exe
+            dist/AS400 Quantum Suite-Setup.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
