@@ -2,6 +2,7 @@
 #define AppVersion "4.1.0"
 #define AppPublisher "emxts-hub"
 #define AppExeName "AS400QuantumSuite.exe"
+#define AppBundleName "AS400QuantumSuite"
 
 [Setup]
 AppId={{B9B4F2A1-5F7D-4D5E-A9CF-7F50A2D6B1A8}
@@ -20,7 +21,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#AppExeName}
 
 [Files]
-Source: "dist\AS400QuantumSuite\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\{#AppBundleName}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Offline-only release build: no Firebase service account JSON is bundled.
 ; The workflow removes any legacy credential file before packaging.
 
