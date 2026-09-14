@@ -26,7 +26,7 @@ from config import (
 )
 
 _LOG_WRITE_LOCK = threading.Lock()
-_LOG_MUTEX_NAME = "Local\\WinMacOS_DailyLogWrite"
+_LOG_MUTEX_NAME = "Local\\AS400QuantumSuite_DailyLogWrite"
 _LOG_MUTEX_WAIT_MS = 30000
 _LOG_QUEUE = queue.Queue()
 _LOGGER_THREAD = None
@@ -37,6 +37,8 @@ _LAST_ASP_EMAIL_STATE = {}
 _ALERT_SOUND_STOP_EVENT = threading.Event()
 _ALERT_SOUND_PROCESSES = set()
 _ALERT_SOUND_PROCESS_LOCK = threading.Lock()
+_ALERT_SOUND_LOCK = threading.Lock()
+_ALERT_SOUND_THREAD = None
 
 
 def _logger_worker():
@@ -60,7 +62,7 @@ def _start_logger_worker():
     global _LOGGER_THREAD
     if _LOGGER_THREAD is not None and _LOGGER_THREAD.is_alive():
         return
-    _LOGGER_THREAD = threading.Thread(target=_logger_worker, name="WinMacOS-LogWriter", daemon=True)
+    _LOGGER_THREAD = threading.Thread(target=_logger_worker, name="AS400QuantumSuite-LogWriter", daemon=True)
     _LOGGER_THREAD.start()
 
 
@@ -146,8 +148,14 @@ def _repair_wav_file_if_needed(wav_path):
 
 
 def play_asp_alert_sound():
-    """Locates warning.wav, ngani.wav, and alert.wav and plays them sequentially (1 -> 2 -> 3) in the background."""
-    """target_names = ["warning.wav", "ngani.wav", "alert.wav"]"""
+    """Play the warning wav in a single looped thread without overlap: 1 second sound, 1 second silence."""
+    global _ALERT_SOUND_THREAD
+
+    with _ALERT_SOUND_LOCK:
+        if _ALERT_SOUND_THREAD is not None and _ALERT_SOUND_THREAD.is_alive():
+            return True
+
+    _ALERT_SOUND_STOP_EVENT.clear()
     target_names = ["warning.wav"]
     wav_paths = []
 
@@ -181,8 +189,7 @@ def play_asp_alert_sound():
         if found_path and os.path.exists(found_path):
             wav_paths.append(found_path)
 
-    """if len(wav_paths) < 3:"""
-    if len(wav_paths) < 1:
+    if not wav_paths:
         print(
             f"Alert sound error: Expected at least 1 sound file, found {len(wav_paths)}."
         )
@@ -195,60 +202,82 @@ def play_asp_alert_sound():
             except Exception:
                 pass
 
-        def _play_sequential():
-            for p in wav_paths:
-                if _ALERT_SOUND_STOP_EVENT.is_set():
-                    return
-                if sys.platform == "win32":
-                    import winsound
-                    winsound.PlaySound(
-                        str(p),
-                        winsound.SND_FILENAME | winsound.SND_NODEFAULT | winsound.SND_ASYNC,
-                    )
+        def _play_once(path):
+            if sys.platform == "win32":
+                import winsound
+                winsound.PlaySound(
+                    str(path),
+                    winsound.SND_FILENAME | winsound.SND_NODEFAULT | winsound.SND_ASYNC,
+                )
+                return
 
-                elif sys.platform == "darwin":
-                    p_proc = subprocess.Popen(
-                        ["afplay", str(p)],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
+            if sys.platform == "darwin":
+                p_proc = subprocess.Popen(
+                    ["afplay", str(path)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                with _ALERT_SOUND_PROCESS_LOCK:
+                    _ALERT_SOUND_PROCESSES.add(p_proc)
+                try:
+                    p_proc.wait()
+                finally:
                     with _ALERT_SOUND_PROCESS_LOCK:
-                        _ALERT_SOUND_PROCESSES.add(p_proc)
-                    try:
-                        p_proc.wait()
-                    finally:
-                        with _ALERT_SOUND_PROCESS_LOCK:
-                            _ALERT_SOUND_PROCESSES.discard(p_proc)
+                        _ALERT_SOUND_PROCESSES.discard(p_proc)
+                return
 
-                else:
-                    try:
-                        p_proc = subprocess.Popen(
-                            ["ffplay", "-nodisp", "-autoexit", str(p)],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                        )
-                        with _ALERT_SOUND_PROCESS_LOCK:
-                            _ALERT_SOUND_PROCESSES.add(p_proc)
-                        try:
-                            p_proc.wait()
-                        finally:
-                            with _ALERT_SOUND_PROCESS_LOCK:
-                                _ALERT_SOUND_PROCESSES.discard(p_proc)
-                    except Exception:
-                        p_proc = subprocess.Popen(
-                            ["aplay", str(p)],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                        )
-                        with _ALERT_SOUND_PROCESS_LOCK:
-                            _ALERT_SOUND_PROCESSES.add(p_proc)
-                        try:
-                            p_proc.wait()
-                        finally:
-                            with _ALERT_SOUND_PROCESS_LOCK:
-                                _ALERT_SOUND_PROCESSES.discard(p_proc)
+            try:
+                p_proc = subprocess.Popen(
+                    ["ffplay", "-nodisp", "-autoexit", str(path)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                with _ALERT_SOUND_PROCESS_LOCK:
+                    _ALERT_SOUND_PROCESSES.add(p_proc)
+                try:
+                    p_proc.wait()
+                finally:
+                    with _ALERT_SOUND_PROCESS_LOCK:
+                        _ALERT_SOUND_PROCESSES.discard(p_proc)
+            except Exception:
+                p_proc = subprocess.Popen(
+                    ["aplay", str(path)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                with _ALERT_SOUND_PROCESS_LOCK:
+                    _ALERT_SOUND_PROCESSES.add(p_proc)
+                try:
+                    p_proc.wait()
+                finally:
+                    with _ALERT_SOUND_PROCESS_LOCK:
+                        _ALERT_SOUND_PROCESSES.discard(p_proc)
 
-        threading.Thread(target=_play_sequential, daemon=True).start()
+        def _play_sequential():
+            global _ALERT_SOUND_THREAD
+            try:
+                while not _ALERT_SOUND_STOP_EVENT.is_set():
+                    for p in wav_paths:
+                        if _ALERT_SOUND_STOP_EVENT.is_set():
+                            return
+                        _play_once(p)
+                        if _ALERT_SOUND_STOP_EVENT.is_set():
+                            return
+                        time.sleep(1.0)
+                        if _ALERT_SOUND_STOP_EVENT.is_set():
+                            return
+                        time.sleep(1.0)
+            finally:
+                with _ALERT_SOUND_LOCK:
+                    if _ALERT_SOUND_THREAD is threading.current_thread():
+                        _ALERT_SOUND_THREAD = None
+
+        thread = threading.Thread(target=_play_sequential, daemon=True, name="AS400QuantumSuite-ASPAlertSound")
+        with _ALERT_SOUND_LOCK:
+            if _ALERT_SOUND_THREAD is not None and _ALERT_SOUND_THREAD.is_alive():
+                return True
+            _ALERT_SOUND_THREAD = thread
+        thread.start()
         return True
 
     except Exception as e:
@@ -263,6 +292,7 @@ def reset_asp_alert_sound():
 
 def stop_asp_alert_sound():
     """Stop any alert playback started by the monitoring worker."""
+    global _ALERT_SOUND_THREAD
     _ALERT_SOUND_STOP_EVENT.set()
 
     def _stop_playback():
@@ -284,6 +314,9 @@ def stop_asp_alert_sound():
                     process.terminate()
             except Exception:
                 pass
+
+        with _ALERT_SOUND_LOCK:
+            _ALERT_SOUND_THREAD = None
 
     threading.Thread(target=_stop_playback, daemon=True).start()
 
@@ -327,43 +360,52 @@ def send_asp_alert(server_name, asp_value, threshold_percent):
 
 
 def maybe_send_asp_alert(server_name, asp_value):
-    """Plays the ASP sound on each refresh while the server remains above threshold; email keeps its own cooldown."""
+    """Plays the ASP sound on each refresh while any server remains above threshold."""
     alert_cfg = load_email_alerts()
     email_enabled = bool(alert_cfg.get("enabled"))
 
     try:
-        asp_value = float(asp_value or 0.0)
+        asp_value = float(asp_value if asp_value is not None else 0.0)
     except (TypeError, ValueError):
         asp_value = 0.0
 
-    threshold_percent = float(alert_cfg.get("threshold_percent", 90.0) or 90.0)
+    threshold_percent = float(alert_cfg.get("threshold_percent", 40.0) or 40.0)
     cooldown_seconds = max(0, int(float(alert_cfg.get("cooldown_minutes", 10) or 10) * 60))
+
+    email_should_send = False
 
     with _ALERT_STATE_LOCK:
         now = time.monotonic()
-        state = _LAST_ASP_ALERT_STATE.get(server_name, {"armed": False, "sent_at": 0.0})
 
         if asp_value < threshold_percent:
-            state["armed"] = False
-            state["sent_at"] = 0.0
-            _LAST_ASP_ALERT_STATE[server_name] = state
+            # Clear state for THIS server
+            _LAST_ASP_ALERT_STATE[server_name] = {"armed": False, "sent_at": 0.0}
+            
+            # ONLY stop sound if NO other servers are currently armed
+            any_armed = any(st.get("armed", False) for st in _LAST_ASP_ALERT_STATE.values())
+            if not any_armed:
+                stop_asp_alert_sound()
             return False
 
-        state["armed"] = True
-        _LAST_ASP_ALERT_STATE[server_name] = state
+        # Mark server as armed
+        _LAST_ASP_ALERT_STATE[server_name] = {"armed": True, "sent_at": now}
 
-        email_state = _LAST_ASP_EMAIL_STATE.get(server_name, {"sent_at": 0.0})
-        email_due = not email_enabled or (now - float(email_state.get("sent_at", 0.0))) >= cooldown_seconds
-        if email_enabled and email_due:
-            email_state["sent_at"] = now
-            _LAST_ASP_EMAIL_STATE[server_name] = email_state
-            email_should_send = True
-        else:
-            email_should_send = False
+        # Check email cooldown
+        if email_enabled:
+            email_state = _LAST_ASP_EMAIL_STATE.get(server_name, {"sent_at": None})
+            last_sent = email_state.get("sent_at")
 
+            if last_sent is None or (now - last_sent) >= cooldown_seconds:
+                _LAST_ASP_EMAIL_STATE[server_name] = {"sent_at": now}
+                email_should_send = True
+
+    # Play sound as long as this server is active
     sound_played = play_asp_alert_sound()
+
     if email_should_send:
-        return send_asp_alert(server_name, asp_value, threshold_percent) or sound_played
+        email_sent = send_asp_alert(server_name, asp_value, threshold_percent)
+        return email_sent or sound_played
+
     return sound_played
 
 
@@ -513,6 +555,87 @@ def _read_log_entries(file_path):
         return None
 
 
+def _record_has_issue(record):
+    if not isinstance(record, dict):
+        return False
+
+    status = str(record.get("status", "OFFLINE")).upper()
+    if status not in {"ONLINE", "UP", "OK"}:
+        return True
+
+    if record.get("subsystems_summary") not in (None, "", "None") and str(record.get("subsystems_summary")).strip() != "None":
+        return True
+
+    services_down = record.get("services_down")
+    if services_down not in (None, "", "None", []) and str(services_down).strip() != "None":
+        return True
+
+    detail = record.get("subsystems_detail", [])
+    if isinstance(detail, list) and detail:
+        return True
+
+    return False
+
+
+def _last_matching_record_for_server(filepath, server_name):
+    try:
+        if not os.path.exists(filepath):
+            return None
+        with open(filepath, "r", encoding="utf-8") as handle:
+            existing_data = json.load(handle) or []
+        if not isinstance(existing_data, list):
+            existing_data = [existing_data]
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    for entry in reversed(existing_data):
+        if not isinstance(entry, dict):
+            continue
+        records = entry.get("records", [])
+        if not isinstance(records, list):
+            records = [records] if isinstance(records, dict) else []
+        for rec in reversed(records):
+            if not isinstance(rec, dict):
+                continue
+            rec_server = str(rec.get("server") or rec.get("lpar") or rec.get("config_key") or "").strip()
+            if rec_server == server_name:
+                return rec
+    return None
+
+
+def _is_same_dedupe_window_record(existing_record, server_name, dedupe_seconds, candidate_record, now):
+    if not isinstance(existing_record, dict):
+        return False
+
+    rec_server = str(existing_record.get("server") or existing_record.get("lpar") or existing_record.get("config_key") or "").strip()
+    rec_ts = str(existing_record.get("timestamp") or "").strip()
+    if rec_server != server_name:
+        return False
+
+    try:
+        existing_dt = datetime.strptime(rec_ts, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return False
+
+    if dedupe_seconds > 0 and (now - existing_dt).total_seconds() > dedupe_seconds:
+        return False
+
+    existing_status = str(existing_record.get("status", "OFFLINE")).upper()
+    candidate_status = str(candidate_record.get("status", "OFFLINE")).upper()
+    if existing_status != candidate_status:
+        return False
+
+    if existing_record.get("services_down") != candidate_record.get("services_down"):
+        return False
+
+    if existing_record.get("subsystems_summary") != candidate_record.get("subsystems_summary"):
+        return False
+
+    existing_detail = json.dumps(existing_record.get("subsystems_detail", []), sort_keys=True, default=str)
+    candidate_detail = json.dumps(candidate_record.get("subsystems_detail", []), sort_keys=True, default=str)
+    return existing_detail == candidate_detail
+
+
 def _merge_and_remove_conflict_logs(canonical_path, date_str):
     """Merge OneDrive conflict snapshots into the daily file, then remove them."""
     logs_dir = os.path.dirname(canonical_path)
@@ -573,27 +696,34 @@ def _save_single_lpar_log(sys_info, server_configs=None):
     server_name = str(server_name).strip() or config_key
 
     issue_present = _has_server_issues(sys_info, configs)
+    dedupe_seconds = int(load_email_alerts().get("log_dedupe_seconds", 60) or 60)
 
     try:
-        if not issue_present:
-            existing_data = []
-            if os.path.exists(filepath):
-                with open(filepath, "r", encoding="utf-8") as f:
-                    existing_data = json.load(f) or []
-                    if not isinstance(existing_data, list):
-                        existing_data = [existing_data]
-            current_hour_prefix = now.strftime("%Y-%m-%d %H")
-            for entry in existing_data:
-                if not isinstance(entry, dict):
-                    continue
-                for rec in entry.get("records", []):
-                    if not isinstance(rec, dict):
-                        continue
-                    rec_server = str(rec.get("server") or rec.get("lpar") or rec.get("config_key") or "").strip()
-                    rec_ts = str(rec.get("timestamp") or "").strip()
-                    if rec_server == server_name and rec_ts.startswith(current_hour_prefix):
-                        _merge_and_remove_conflict_logs(filepath, date_str)
-                        return "already_recorded"
+        last_record = _last_matching_record_for_server(filepath, server_name)
+        previous_issue = bool(last_record and _record_has_issue(last_record))
+        recovery_transition = bool(previous_issue and not issue_present)
+
+        if not issue_present and last_record is not None:
+            try:
+                last_dt = datetime.strptime(str(last_record.get("timestamp") or ""), "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                last_dt = None
+            if last_dt is not None and last_dt.strftime("%Y-%m-%d %H:00:00") == now.strftime("%Y-%m-%d %H:00:00"):
+                _merge_and_remove_conflict_logs(filepath, date_str)
+                return "already_recorded"
+
+        if not issue_present and not recovery_transition:
+            pass
+
+        if issue_present and last_record is not None:
+            if _is_same_dedupe_window_record(last_record, server_name, dedupe_seconds, {
+                "status": sys_info.get("status", "OFFLINE"),
+                "subsystems_summary": "None" if not last_record.get("subsystems_summary", "None") else last_record.get("subsystems_summary"),
+                "subsystems_detail": last_record.get("subsystems_detail", []),
+                "services_down": last_record.get("services_down", "None"),
+            }, now):
+                _merge_and_remove_conflict_logs(filepath, date_str)
+                return "already_recorded"
     except json.JSONDecodeError:
         return "failed"
     except OSError:
@@ -670,6 +800,26 @@ def _save_single_lpar_log(sys_info, server_configs=None):
         "subsystems_detail": subsystems_detail,
         "services_down": services_down_val
     }
+
+    try:
+        if os.path.exists(filepath):
+            with open(filepath, "r", encoding="utf-8") as f:
+                existing_data = json.load(f) or []
+                if not isinstance(existing_data, list):
+                    existing_data = [existing_data]
+            for entry in existing_data:
+                if not isinstance(entry, dict):
+                    continue
+                for rec in entry.get("records", []):
+                    if _is_same_dedupe_window_record(rec, server_name, dedupe_seconds, record, now):
+                        _merge_and_remove_conflict_logs(filepath, date_str)
+                        return "already_recorded"
+    except json.JSONDecodeError:
+        return "failed"
+    except OSError:
+        return "file_busy"
+    except Exception:
+        return "failed"
 
     entry = {
         "timestamp": timestamp_str,

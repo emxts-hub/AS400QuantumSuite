@@ -30,7 +30,7 @@ class LoadingOverlay(QWidget):
         self.is_dark_theme = is_dark_theme
         self.update()
 
-    def paintEvent(self, event):
+    def paintEvent(self, a0):
         painter = QPainter(self)
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -374,8 +374,8 @@ class LogViewerWidget(QWidget):
         self.log_buffer_limit = None if value == "All" else int(value)
         self.populate_views()
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
+    def resizeEvent(self, a0):
+        super().resizeEvent(a0)
         if hasattr(self, "loading_overlay"):
             self.loading_overlay.setGeometry(self.rect())
 
@@ -887,7 +887,7 @@ class LogViewerWidget(QWidget):
 
             sub_count = f" {subs_summary}" if subs_summary else f"{len(subs_detail)} Active"
             sub_btn = QPushButton(sub_count)
-            sub_btn.subs_detail = subs_detail
+            setattr(sub_btn, "subs_detail", subs_detail)
             sub_btn.setFlat(True)
             sub_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
             sub_btn.setStyleSheet("QPushButton { color: #58a6ff; font-size: 11px; font-weight: bold; border: none; text-decoration: underline; }")
@@ -1158,10 +1158,14 @@ class LogViewerWidget(QWidget):
         )
 
         layout = QVBoxLayout(dialog)
-        lbl = QLabel(f"Subsystems status on {lpar_name}:")
-        lbl.setFont(self._make_font("Segoe UI", 10, QFont.Weight.Bold))
-        lbl.setStyleSheet("color: #ffffff; margin-bottom: 8px;")
-        layout.addWidget(lbl)
+        title_label = QLabel(f"Subsystems status on {lpar_name}:")
+        title_label.setFont(self._make_font("Segoe UI", 10, QFont.Weight.Bold))
+        title_label.setStyleSheet(
+            "color: #ffffff; margin-bottom: 8px;"
+            if self.is_dark_theme
+            else "color: #1f2328; margin-bottom: 8px;"
+        )
+        layout.addWidget(title_label)
 
         grid_widget = QWidget()
         grid = QGridLayout(grid_widget)

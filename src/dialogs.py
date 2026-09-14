@@ -23,6 +23,43 @@ from config import (
 )
 
 
+class TestEmailThread(QThread):
+    result_ready = pyqtSignal(bool, str)
+
+    def __init__(self, smtp_server, port, use_tls, username, password, from_address, to_addresses):
+        super().__init__()
+        self.smtp_server = smtp_server
+        self.port = port
+        self.use_tls = use_tls
+        self.username = username
+        self.password = password
+        self.from_address = from_address
+        self.to_addresses = to_addresses
+
+    def run(self):
+        try:
+            msg = LparSettingsDialog._build_test_message(self.from_address, self.to_addresses)
+
+            if self.use_tls:
+                smtp = smtplib.SMTP(self.smtp_server, self.port, timeout=15)
+                smtp.starttls()
+            else:
+                smtp = smtplib.SMTP(self.smtp_server, self.port, timeout=15)
+
+            try:
+                if self.username and self.password:
+                    smtp.login(self.username, self.password)
+                smtp.send_message(msg)
+                self.result_ready.emit(True, "Test email sent successfully.")
+            finally:
+                try:
+                    smtp.quit()
+                except Exception:
+                    pass
+        except Exception as exc:
+            self.result_ready.emit(False, f"Sending test email failed: {str(exc)}")
+
+
 class AppExpirationDialog(QDialog):
     def __init__(self, title: str, message: str, download_url: Optional[str] = None, parent=None):
         super().__init__(parent)
@@ -260,7 +297,7 @@ class LparSettingsDialog(QDialog):
         # Threshold and cooldown
         h_thresh = QHBoxLayout()
         h_thresh.addWidget(QLabel("Threshold %:"))
-        self.threshold_input = QLineEdit(str(email_cfg.get("threshold_percent", 90)))
+        self.threshold_input = QLineEdit(str(email_cfg.get("threshold_percent", 40)))
         self.threshold_input.setMaximumWidth(80)
         h_thresh.addWidget(self.threshold_input)
         h_thresh.addWidget(QLabel("Cooldown minutes:"))
@@ -284,6 +321,20 @@ class LparSettingsDialog(QDialog):
         else:
             self.refresh_interval_combo.setCurrentIndex(3)
         h_refresh.addWidget(self.refresh_interval_combo)
+
+        h_refresh.addWidget(QLabel("Log Dedupe:"))
+        self.log_dedupe_combo = QComboBox()
+        self.log_dedupe_combo.addItems(["Off", "30s", "1m", "5m"])
+        current_dedupe_seconds = int(email_cfg.get("log_dedupe_seconds", 60) or 60)
+        if current_dedupe_seconds == 0:
+            self.log_dedupe_combo.setCurrentIndex(0)
+        elif current_dedupe_seconds == 30:
+            self.log_dedupe_combo.setCurrentIndex(1)
+        elif current_dedupe_seconds == 60:
+            self.log_dedupe_combo.setCurrentIndex(2)
+        else:
+            self.log_dedupe_combo.setCurrentIndex(3)
+        h_refresh.addWidget(self.log_dedupe_combo)
         h_refresh.addStretch()
         email_layout.addLayout(h_refresh)
 
@@ -415,11 +466,43 @@ class LparSettingsDialog(QDialog):
         if current_row >= 0:
             self.table.removeRow(current_row)
 
+    @staticmethod
+    def _build_test_message(from_address: str, to_addresses):
+        msg = EmailMessage()
+        msg["Subject"] = "[Test] IBM i Dashboard SMTP Test"
+        msg["From"] = from_address
+        msg["To"] = ", ".join(to_addresses)
+        msg.set_content("This is a test email sent from the IBM i Dashboard to validate SMTP settings.")
+        return msg
+
+    def _show_loading_state(self, is_loading: bool):
+        if is_loading:
+            if not hasattr(self, "_loading_dialog"):
+                self._loading_dialog = QMessageBox(self)
+                self._loading_dialog.setWindowTitle("Sending test mail")
+                self._loading_dialog.setText("Sending test mail...")
+                self._loading_dialog.setStandardButtons(QMessageBox.StandardButton.NoButton)
+                self._loading_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+                self._loading_dialog.setModal(True)
+            self._loading_dialog.show()
+            self._loading_dialog.raise_()
+            self._loading_dialog.activateWindow()
+        elif hasattr(self, "_loading_dialog"):
+            self._loading_dialog.hide()
+
     def _is_valid_email(self, addr: str) -> bool:
         if not addr:
             return False
         # Simple validation — sufficient for common use; can be strengthened if needed
         return re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", addr) is not None
+
+    def _handle_test_email_result(self, success: bool, message: str):
+        self.test_email_btn.setEnabled(True)
+        self._show_loading_state(False)
+        if success:
+            QMessageBox.information(self, "Test Email", message)
+        else:
+            QMessageBox.critical(self, "Test Email Failed", message)
 
     def send_test_email(self):
         # Gather SMTP settings
@@ -447,35 +530,20 @@ class LparSettingsDialog(QDialog):
                 QMessageBox.warning(self, "Invalid Recipient", f"The recipient address '{a}' does not look valid.")
                 return
 
-        # Disable button while sending
         self.test_email_btn.setEnabled(False)
-        try:
-            msg = EmailMessage()
-            msg["Subject"] = "[Test] IBM i Dashboard SMTP Test"
-            msg["From"] = from_address
-            msg["To"] = ", ".join(to_addresses)
-            msg.set_content("This is a test email sent from the IBM i Dashboard to validate SMTP settings.")
+        self._show_loading_state(True)
 
-            if use_tls:
-                smtp = smtplib.SMTP(smtp_server, port, timeout=15)
-                smtp.starttls()
-            else:
-                smtp = smtplib.SMTP(smtp_server, port, timeout=15)
-
-            try:
-                if username and password:
-                    smtp.login(username, password)
-                smtp.send_message(msg)
-                QMessageBox.information(self, "Test Email", "Test email sent successfully.")
-            finally:
-                try:
-                    smtp.quit()
-                except Exception:
-                    pass
-        except Exception as e:
-            QMessageBox.critical(self, "Test Email Failed", f"Sending test email failed: {str(e)}")
-        finally:
-            self.test_email_btn.setEnabled(True)
+        self.test_thread = TestEmailThread(
+            smtp_server=smtp_server,
+            port=port,
+            use_tls=use_tls,
+            username=username,
+            password=password,
+            from_address=from_address,
+            to_addresses=to_addresses,
+        )
+        self.test_thread.result_ready.connect(self._handle_test_email_result)
+        self.test_thread.start()
 
     def save_and_close(self):
         new_configs = {}
@@ -573,6 +641,14 @@ class LparSettingsDialog(QDialog):
         }
         refresh_interval_ms = refresh_interval_map.get(self.refresh_interval_combo.currentText(), 0)
 
+        dedupe_map = {
+            "Off": 0,
+            "30s": 30,
+            "1m": 60,
+            "5m": 300,
+        }
+        log_dedupe_seconds = dedupe_map.get(self.log_dedupe_combo.currentText(), 60)
+
         # Basic email validation
         if from_address and not self._is_valid_email(from_address):
             QMessageBox.warning(self, "Invalid From Address", "Please enter a valid From email address.")
@@ -597,6 +673,7 @@ class LparSettingsDialog(QDialog):
             "threshold_percent": threshold_percent,
             "cooldown_minutes": cooldown_minutes,
             "refresh_interval_ms": refresh_interval_ms,
+            "log_dedupe_seconds": log_dedupe_seconds,
         }
 
         # Attempt to save — save_all_configs will securely persist password if possible
@@ -659,7 +736,8 @@ class CommandQuickActionDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Command Quick-Action Panel")
         self.resize(550, 400)
-        is_dark_theme = bool(QApplication.instance().property("is_dark_theme"))
+        app = QApplication.instance()
+        is_dark_theme = bool(app is not None and app.property("is_dark_theme"))
         dialog_bg = "#161b22" if is_dark_theme else "#ffffff"
         input_bg = "#0d1117" if is_dark_theme else "#f6f8fa"
         text = "#c9d1d9" if is_dark_theme else "#1f2328"
@@ -717,9 +795,9 @@ class CommandQuickActionDialog(QDialog):
         self.output_text.append(f"Connecting to {server} ({host}) to execute: {cmd}...")
         self.exec_btn.setEnabled(False)
 
-        self.thread = SSHRunnerThread(host, self.username, self.password, cmd)
-        self.thread.output_signal.connect(self.handle_output)
-        self.thread.start()
+        self.ssh_thread = SSHRunnerThread(host, self.username, self.password, cmd)
+        self.ssh_thread.output_signal.connect(self.handle_output)
+        self.ssh_thread.start()
 
     def handle_output(self, text):
         self.output_text.append(text)

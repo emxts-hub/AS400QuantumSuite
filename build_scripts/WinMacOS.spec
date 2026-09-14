@@ -20,7 +20,7 @@ exe = EXE(
     pyz,
     a.scripts,
     [],
-    name='WinMacOS',
+    name='AS400QuantumSuite',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -43,5 +43,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='WinMacOS',
+    name='AS400QuantumSuite',
 )

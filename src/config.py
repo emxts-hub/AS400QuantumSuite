@@ -5,8 +5,8 @@ import uuid
 import time
 from datetime import datetime, timezone
 
-APP_NAME = "IBMi_Dashboard"
-APP_VERSION = "4.0.0"
+APP_NAME = "AS/400 Quantum Suite"
+APP_VERSION = "4.1.0"
 USER_PROFILE = os.environ.get("USERPROFILE") or os.path.expanduser("~")
 ONEDRIVE_SHAREPOINT_PATH = os.path.join(
     USER_PROFILE,
@@ -174,6 +174,7 @@ DEFAULT_EMAIL_ALERTS = {
     "threshold_percent": 40,
     "cooldown_minutes": 10,
     "refresh_interval_ms": 0,
+    "log_dedupe_seconds": 60,
 }
 
 
@@ -334,6 +335,10 @@ def load_email_alerts():
         merged["cooldown_minutes"] = int(merged.get("cooldown_minutes", 10) or 10)
     except Exception:
         merged["cooldown_minutes"] = 10
+    try:
+        merged["log_dedupe_seconds"] = int(merged.get("log_dedupe_seconds", 60) or 60)
+    except Exception:
+        merged["log_dedupe_seconds"] = 60
 
     try:
         merged_password = get_email_password(merged.get("username", ""))
@@ -496,7 +501,7 @@ SERVICE_COMMANDS = {
     2001: "STRTCPSVR SERVER(*HTTP)",
     2002: "STRTCPSVR SERVER(*HTTP)",
     31111: "STRNETMAN",
-    31114: "STRNETMAN",
+    31114: "STARTTWS",
 }
 
 SUBSYSTEM_COMMANDS = {

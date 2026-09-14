@@ -1,17 +1,17 @@
-#define AppName "WinMacOS"
-#define AppVersion "4.0.0"
+#define AppName "AS/400 Quantum Suite"
+#define AppVersion "4.1.0"
 #define AppPublisher "emxts-hub"
-#define AppExeName "WinMacOS.exe"
+#define AppExeName "AS400QuantumSuite.exe"
 
 [Setup]
 AppId={{B9B4F2A1-5F7D-4D5E-A9CF-7F50A2D6B1A8}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\{#AppName}
+DefaultDirName={autopf}\AS400QuantumSuite
 DefaultGroupName={#AppName}
 OutputDir=dist
-OutputBaseFilename=WinMacOS-Setup
+OutputBaseFilename=AS400QuantumSuite-Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -20,7 +20,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#AppExeName}
 
 [Files]
-Source: "dist\WinMacOS\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\AS400QuantumSuite\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Offline-only release build: no Firebase service account JSON is bundled.
 ; The workflow removes any legacy credential file before packaging.
 

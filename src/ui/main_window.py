@@ -10,7 +10,7 @@ from config import APP_VERSION, APP_NAME, load_email_alerts
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from PyQt6.QtCore import Qt, QTimer, QThreadPool, QCoreApplication, QPointF, QRectF, QPropertyAnimation, QAbstractAnimation, pyqtProperty
+from PyQt6.QtCore import Qt, QTimer, QThreadPool, QCoreApplication, QPointF, QRectF, QPropertyAnimation, QAbstractAnimation, pyqtProperty, QSize
 from PyQt6.QtGui import QColor, QFont, QCursor, QIcon, QPainter, QPen, QPolygonF, QBrush
 from PyQt6.QtWidgets import (
     QMainWindow, QTabWidget, QWidget, QVBoxLayout,
@@ -1022,6 +1022,72 @@ def resource_path(relative_path):
     return get_resource_path(relative_path)
 
 
+class AppInfoDialog(QDialog):
+
+  def __init__(self, version_str: str, parent=None):
+    super().__init__(parent)
+    self.setWindowTitle("About this App")
+    self.setModal(True)
+    self.setFixedWidth(460)
+    self.setMinimumHeight(340)  # Tightened height to remove empty space
+    self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+
+    self.info_label = QLabel(self._build_info_text(version_str))
+    self.info_label.setWordWrap(True)
+    self.info_label.setTextInteractionFlags(
+        Qt.TextInteractionFlag.TextSelectableByMouse
+    )
+    self.info_label.setAlignment(
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+    )
+
+    layout = QVBoxLayout(self)
+    layout.setContentsMargins(16, 16, 16, 16)
+    layout.addWidget(self.info_label)
+
+    self.setStyleSheet(
+        "QDialog { background-color: #0f172a; border: 1px solid #1e293b;"
+        " border-radius: 10px; }"
+        "QLabel { background-color: transparent; color: #f8fafc; padding: 4px;"
+        " font-size: 13px; line-height: 1.5; }"
+    )
+
+  @staticmethod
+  def _build_info_text(version_str: str) -> str:
+    return (
+        "<div style='font-family: Segoe UI, sans-serif; color: #e2e8f0;'>"
+        "<h2 style='margin: 0 0 6px 0; color: #38bdf8; font-size: 18px;"
+        " font-weight: bold; letter-spacing: 0.5px;'>AS/400 QUANTUM</h2>"
+        "<div style='color: #cbd5e1; font-size: 12px; margin-bottom: 12px;'>"
+        "<b>System:</b> IBM i (AS/400) Real-time Monitoring & Telemetry<br>"
+        "<b>Stack:</b> Python | SQL<br>"
+        f"<b>Version:</b> {version_str}"
+        "</div>"
+        "<hr style='border: none; border-top: 1px solid #334155; margin: 12px"
+        " 0;'>"
+        "<div style='margin-bottom: 12px;'>"
+        "<b style='color: #f1f5f9; font-size: 13px;'>Key Features:</b>"
+        "<ul style='margin: 6px 0 0 16px; padding: 0; color: #cbd5e1;"
+        " font-size: 12px; line-height: 1.6;'>"
+        "<li>Real-Time LPAR Health Monitoring (CPU / ASP / Active Jobs)</li>"
+        "<li>System Service & Subsystem Status Tracking</li>"
+        "<li>Historical Log Vault & Daily LPAR Summaries</li>"
+        "<li>Monthly Performance Analytics & Excel Reporting</li>"
+        "</ul>"
+        "</div>"
+        "<hr style='border: none; border-top: 1px solid #334155; margin: 12px"
+        " 0;'>"
+        "<div style='color: #94a3b8; font-size: 11px; line-height: 1.5;'>"
+        "<b>© 2026 Reymart De Lara.</b> All Rights Reserved.<br>"
+        "<span style='color: #cbd5e1;'>Created & Developed by Reymart De"
+        " Lara</span><br>"
+        "<span style='color: #64748b; font-size: 10px;'>IBM i and AS/400 are"
+        " registered trademarks of IBM Corp.</span>"
+        "</div>"
+        "</div>"
+    )
+
+
 class IBMiDashboard(QMainWindow):
     _version_worker: VersionCheckWorker | None
 
@@ -1034,6 +1100,7 @@ class IBMiDashboard(QMainWindow):
 
         app = QApplication.instance()
         self.is_dark_theme = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
+        self._theme_loading_dialog = None
 
         self.setWindowIcon(QIcon(resource_path("logo.png")))
         self.resize(1750, 950)
@@ -1163,6 +1230,36 @@ class IBMiDashboard(QMainWindow):
         if hasattr(self, 'monthly_report_widget'):
             self.monthly_report_widget.set_theme(self.is_dark_theme)
         self.theme_btn.setText("☀ Light Theme" if self.is_dark_theme else "🌙 Dark Theme")
+        self.info_btn.setStyleSheet(
+            "QPushButton {"
+            "  background-color: transparent;"
+            "  color: #f0f6fc;"
+            "  border: 1px solid #30363d;"
+            "  border-radius: 8px;"
+            "  font-size: 17px;"
+            "  font-weight: bold;"
+            "  padding: 0;"
+            "}"
+            "QPushButton:hover {"
+            "  background-color: #21262d;"
+            "  border-color: #58a6ff;"
+            "}"
+            if self.is_dark_theme else
+            "QPushButton {"
+            "  background-color: transparent;"
+            "  color: #1f2328;"
+            "  border: 1px solid #d0d7de;"
+            "  border-radius: 8px;"
+            "  font-size: 17px;"
+            "  font-weight: bold;"
+            "  padding: 0;"
+            "}"
+            "QPushButton:hover {"
+            "  background-color: #f3f4f6;"
+            "  border-color: #0969da;"
+            "}"
+        )
+        self.info_btn.setText("🛈")
         self.update_toggle_button_style()
 
     def init_live_monitor_ui(self):
@@ -1236,6 +1333,28 @@ class IBMiDashboard(QMainWindow):
         self.theme_btn.setToolTip("Switch between dark and light themes")
         self.theme_btn.clicked.connect(self.toggle_theme)
         top_bar_layout.addWidget(self.theme_btn, stretch=0, alignment=Qt.AlignmentFlag.AlignVCenter)
+
+        self.info_btn = QPushButton("🛈")
+        self.info_btn.setFixedSize(36, 35)
+        self.info_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.info_btn.setToolTip("App information")
+        self.info_btn.clicked.connect(self.show_app_info)
+        self.info_btn.setStyleSheet(
+            "QPushButton {"
+            "  background-color: transparent;"
+            "  color: #f0f6fc;"
+            "  border: 1px solid #30363d;"
+            "  border-radius: 8px;"
+            "  font-size: 17px;"
+            "  font-weight: bold;"
+            "  padding: 0;"
+            "}"
+            "QPushButton:hover {"
+            "  background-color: #21262d;"
+            "  border-color: #58a6ff;"
+            "}"
+        )
+        top_bar_layout.addWidget(self.info_btn, stretch=0, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         main_layout.addLayout(top_bar_layout)
 
@@ -1520,32 +1639,51 @@ class IBMiDashboard(QMainWindow):
         else:
             self.stop_monitoring()
 
-    def toggle_theme(self):
+    def _apply_theme_toggle(self, new_theme, loading_dialog=None):
         app = QApplication.instance()
         if app is None:
+            self._theme_loading_dialog = None
             return
-
-        loading_dialog = ThemeLoadingDialog(self)
-        loading_dialog.move(
-            self.geometry().center() - loading_dialog.rect().center()
-        )
-        loading_dialog.show()
 
         self.setUpdatesEnabled(False)
         try:
-            self.is_dark_theme = not self.is_dark_theme
+            self.is_dark_theme = new_theme
             app.setProperty("is_dark_theme", self.is_dark_theme)
             stylesheet = DARK_STYLESHEET if self.is_dark_theme else LIGHT_STYLESHEET
             cast(QApplication, app).setStyleSheet(stylesheet)
-            
+
             for card in self.card_widgets.values():
                 card.set_theme(self.is_dark_theme)
-                
+
             self.apply_theme_state()
         finally:
             self.setUpdatesEnabled(True)
             self.repaint()
-            loading_dialog.close()
+            if loading_dialog is not None:
+                loading_dialog.close()
+            self._theme_loading_dialog = None
+
+    def toggle_theme(self):
+        app = QApplication.instance()
+        if app is None or self._theme_loading_dialog is not None:
+            return
+
+        loading_dialog = ThemeLoadingDialog(self)
+        self._theme_loading_dialog = loading_dialog
+        loading_dialog.move(
+            self.geometry().center() - loading_dialog.rect().center()
+        )
+        loading_dialog.show()
+        loading_dialog.raise_()
+        QApplication.processEvents()
+
+        target_theme = not self.is_dark_theme
+        QTimer.singleShot(0, lambda: self._apply_theme_toggle(target_theme, loading_dialog))
+
+    def show_app_info(self):
+        dialog = AppInfoDialog(self.version_str, self)
+        dialog.move(self.geometry().center() - dialog.rect().center())
+        dialog.exec()
 
     def update_toggle_button_style(self):
         if self.is_monitoring:

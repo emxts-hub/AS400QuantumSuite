@@ -5,7 +5,6 @@ from datetime import datetime
 import json
 import os
 import re
-from collections import defaultdict
 
 from config import get_all_logs_dirs
 from PyQt6.QtCore import Qt, QPointF, QThread, pyqtSignal
@@ -27,7 +26,7 @@ class LoadingOverlay(QWidget):
         self.is_dark_theme = is_dark_theme
         self.update()
 
-    def paintEvent(self, event):
+    def paintEvent(self, a0):
         painter = QPainter(self)
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -362,9 +361,9 @@ class MonthlyReportWidget(QWidget):
         self.set_theme(self.is_dark_theme)
         self.load_month_options(include_disk=False)
 
-    def showEvent(self, event):
+    def showEvent(self, a0):
         """Automatically fetch and display month data when tab becomes visible."""
-        super().showEvent(event)
+        super().showEvent(a0)
         if not self._initial_loaded:
             self._initial_loaded = True
             self.refresh_report(force=True)
@@ -428,9 +427,11 @@ class MonthlyReportWidget(QWidget):
 
                     wb = openpyxl.Workbook()
                     ws = wb.active
+                    assert ws is not None
                     ws.title = "Summary"
                     ws.views.sheetView[0].showGridLines = True
                     charts_ws = wb.create_sheet(title="Charts", index=1)
+                    assert charts_ws is not None
                     charts_ws.sheet_view.showGridLines = False
                     charts_ws["A1"] = f"IBM i Monthly ASP/CPU Usage ({month_key})"
                     charts_ws["A1"].font = Font(name="Segoe UI", size=18, bold=True, color="1F2937")
@@ -495,11 +496,11 @@ class MonthlyReportWidget(QWidget):
                                 cell.font = data_font
                                 cell.alignment = Alignment(horizontal="right")
                                 if val is not None:
-                                    cell.value = float(val) / 100.0
+                                    cell = ws.cell(row=current_row, column=d_idx, value=float(val) / 100.0)
                                     cell.number_format = "0.00%"
 
                             avg_cell = ws.cell(row=current_row, column=len(days) + 2)
-                            avg_cell.value = float(row.get("month_avg", 0.0)) / 100.0
+                            avg_cell = ws.cell(row=current_row, column=len(days) + 2, value=float(row.get("month_avg", 0.0)) / 100.0)
                             avg_cell.number_format = "0.00%"
                             avg_cell.font = bold_data_font
                             avg_cell.alignment = Alignment(horizontal="right")
@@ -524,6 +525,7 @@ class MonthlyReportWidget(QWidget):
                     def add_metric_chart(table_info, title, data_row, anchor):
                         if table_info["day_count"] < 1:
                             return
+                        assert ws is not None
                         categories = Reference(
                             ws,
                             min_col=2,
@@ -554,7 +556,6 @@ class MonthlyReportWidget(QWidget):
                         chart.y_axis.majorUnit = 0.1
                         chart.y_axis.crosses = "min"
                         chart.x_axis.tickLblPos = "low"
-                        chart.x_axis.tickLblSkip = 1
                         chart.height = 8
                         chart.width = 20
 
@@ -579,6 +580,7 @@ class MonthlyReportWidget(QWidget):
                     def table_rows_by_server(table_info):
                         if table_info["day_count"] < 1:
                             return {}
+                        assert ws is not None
                         return {
                             ws.cell(row=data_row, column=1).value: data_row
                             for data_row in range(
@@ -599,9 +601,13 @@ class MonthlyReportWidget(QWidget):
                         chart_row += 18
                     charts_ws.column_dimensions["A"].width = 3
 
+                    assert ws is not None
                     for col in ws.columns:
+                        first_col = col[0] if col else None
+                        if first_col is None:
+                            continue
                         max_len = max(len(str(cell.value or "")) for cell in col)
-                        col_letter = get_column_letter(col[0].column)
+                        col_letter = get_column_letter(first_col.column or 1)
                         ws.column_dimensions[col_letter].width = max(max_len + 3, 10)
 
                     year, month_num = map(int, month_key.split("-"))
@@ -763,8 +769,8 @@ class MonthlyReportWidget(QWidget):
                     writer.writerow([row.get("server", "")] + values + [row.get("month_avg", 0.0)])
                 writer.writerow([])
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
+    def resizeEvent(self, a0):
+        super().resizeEvent(a0)
         self.loading_overlay.setGeometry(self.rect())
 
     def _build_metric_section(self, metric_name):
@@ -908,6 +914,8 @@ class MonthlyReportWidget(QWidget):
 
         while self.system_filter_layout.count():
             item = self.system_filter_layout.takeAt(0)
+            if item is None:
+                continue
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()

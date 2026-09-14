@@ -27,7 +27,7 @@ jobs:
 
       - name: Build Executable with PyInstaller
         run: |
-          pyinstaller --noconsole --onedir --noupx --clean --name WinMacOS --paths=src --add-data "src/alert.wav;src" --add-data "src/ngani.wav;src" --icon=src/logo.ico --collect-all PyQt6 src/main.py
+          pyinstaller --noconsole --onedir --noupx --clean --name WinMacOS --paths=src --add-data "src/warning.wav;src" --icon=src/logo.ico --collect-all PyQt6 src/main.py
 
       - name: Sign PyInstaller Output Binaries
         shell: powershell
