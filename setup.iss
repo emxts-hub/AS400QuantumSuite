@@ -4,7 +4,7 @@
 #define AppExeName "AS400QuantumSuite.exe"
 
 [Setup]
-AppId={{B9B4F2A1-5F7D-4D5E-A9CF-7F50A2D6B1A8}
+AppId={B9B4F2A1-5F7D-4D5E-A9CF-7F50A2D6B1A8}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
