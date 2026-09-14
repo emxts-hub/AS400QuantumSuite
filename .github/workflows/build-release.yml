@@ -26,7 +26,9 @@ jobs:
           pip install -r requirements.txt
 
       - name: Build Executable with PyInstaller
+        shell: powershell
         run: |
+          if (Test-Path "dist") { Remove-Item -Recurse -Force "dist" }
           pyinstaller --noconsole --onedir --noupx --clean --name "AS400QuantumSuite" --paths=src --add-data "src/warning.wav;src" --add-data "src/logo.png;src" --icon=src/logo.ico --collect-all PyQt6 src/main.py
 
       - name: Sign PyInstaller Output Binaries
@@ -34,9 +36,21 @@ jobs:
         run: |
           # Create a self-signed code-signing certificate
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=AS400 Quantum Suite Code Signing" -CertStoreLocation "Cert:\CurrentUser\My"
-          
+
+          $buildDir = Get-ChildItem -Path "dist" -Directory -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.Name -eq "AS400QuantumSuite" -or $_.Name -eq "AS400 Quantum Suite"
+            } |
+            Select-Object -First 1
+
+          if (-not $buildDir) {
+              throw "PyInstaller output directory not found under dist."
+          }
+
+          Write-Host "Signing files in: $($buildDir.FullName)"
+
           # Sign all executable and DLL files (including PyQt6 binaries) to pass AppLocker/WDAC policy checks
-          Get-ChildItem -Path "dist\AS400 Quantum Suite" -Recurse -Include *.exe, *.dll, *.pyd | ForEach-Object {
+          Get-ChildItem -Path $buildDir.FullName -Recurse -Include *.exe, *.dll, *.pyd | ForEach-Object {
               Set-AuthenticodeSignature -FilePath $_.FullName -Certificate $cert
           }
 
@@ -55,6 +69,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/AS400 Quantum Suite-Setup.exe
+            dist/AS400QuantumSuite-Setup.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
