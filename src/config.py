@@ -109,6 +109,22 @@ def get_logs_dir():
     return preferred
 
 
+def get_monthly_logs_dir_for(month_key=None):
+    """Return the SharePoint log folder for a specific month key, creating it if needed."""
+    if month_key is None:
+        month_key = datetime.now().strftime("%Y-%m")
+
+    try:
+        year, month_num = map(int, month_key.split("-"))
+        month_label = datetime(year, month_num, 1).strftime("%B %Y")
+    except (TypeError, ValueError):
+        return get_logs_dir()
+
+    preferred = os.path.join(ONEDRIVE_SHAREPOINT_PATH, str(year), month_label)
+    os.makedirs(preferred, exist_ok=True)
+    return preferred
+
+
 def get_all_logs_dirs():
     """Return every valid log root in the SharePoint archive, including the active month and historic month folders."""
     dirs = []

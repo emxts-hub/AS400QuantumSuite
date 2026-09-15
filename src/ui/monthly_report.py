@@ -1,13 +1,13 @@
 import csv
 from calendar import month_name, monthrange
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import os
 import re
 
-from config import get_all_logs_dirs
-from PyQt6.QtCore import Qt, QPointF, QThread, pyqtSignal
+from config import get_all_logs_dirs, get_monthly_logs_dir_for
+from PyQt6.QtCore import Qt, QPointF, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF, QCursor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QFileDialog,
@@ -53,7 +53,7 @@ class LoadingOverlay(QWidget):
                 card_width,
                 card_height,
                 Qt.AlignmentFlag.AlignCenter,
-                "Loading report...",
+                "Generating monthly report…",
             )
         finally:
             painter.end()
@@ -74,6 +74,24 @@ class ReportWorker(QThread):
         cpu_report = self.widget._build_month_report(self.month_key, self.cpu_mode, metric_filter="CPU")
         asp_report = self.widget._build_month_report(self.month_key, self.asp_mode, metric_filter="ASP")
         self.finished.emit(cpu_report, asp_report)
+
+
+class GenerateReportWorker(QThread):
+    """Background worker to save a monthly report file without freezing the UI thread."""
+    finished = pyqtSignal(str, bool)
+
+    def __init__(self, widget, month_key, file_path):
+        super().__init__()
+        self.widget = widget
+        self.month_key = month_key
+        self.file_path = file_path
+
+    def run(self):
+        try:
+            success = self.widget._save_monthly_report_to_file(self.month_key, self.file_path, silent=True)
+            self.finished.emit(self.file_path, bool(success))
+        except Exception:
+            self.finished.emit(self.file_path, False)
 
 
 class MonthlyReportWidget(QWidget):
@@ -305,6 +323,11 @@ class MonthlyReportWidget(QWidget):
         self._selected_servers = set()
         self._available_servers = set()
         self._system_filters_initialized = False
+        self._auto_report_timer = QTimer(self)
+        self._auto_report_timer.setInterval(60000)
+        self._auto_report_timer.timeout.connect(self._check_auto_monthly_report)
+        self._last_auto_report_month = None
+        self._pending_generated_month = None
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(16, 16, 16, 16)
@@ -326,6 +349,12 @@ class MonthlyReportWidget(QWidget):
         self.btn_export.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_export.clicked.connect(self.export_monthly_to_excel)
         header.addWidget(self.btn_export)
+
+        self.btn_generate_previous_month = QPushButton("Generate Previous Month")
+        self.btn_generate_previous_month.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_generate_previous_month.clicked.connect(lambda: self.generate_previous_month_report())
+        self.btn_generate_previous_month.hide()
+        header.addWidget(self.btn_generate_previous_month)
 
         self.main_layout.addLayout(header)
 
@@ -360,6 +389,9 @@ class MonthlyReportWidget(QWidget):
 
         self.set_theme(self.is_dark_theme)
         self.load_month_options(include_disk=False)
+        self._auto_report_timer.start()
+        QTimer.singleShot(250, self._ensure_missing_previous_month_report)
+        self._check_auto_monthly_report()
 
     def showEvent(self, a0):
         """Automatically fetch and display month data when tab becomes visible."""
@@ -396,21 +428,75 @@ class MonthlyReportWidget(QWidget):
                     result[srv][d][h] = round(sum(vals) / len(vals), 2)
         return result
 
-    def export_monthly_to_excel(self):
-        """Exports CPU and ASP monthly reports into a summary sheet and separate LPAR tabs with 2-tier heatmap logic."""
-        month_key = self.month_combo.currentText() or datetime.now().strftime("%Y-%m")
-        default_filename = f"IBM_i_Monthly_Report_{month_key}.xlsx"
+    def _resolve_auto_month_report_month(self, now=None):
+        """Return last month's YYYY-MM when the scheduled 1st-of-month generation window is active."""
+        if now is None:
+            now = datetime.now()
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export Monthly Report",
-            default_filename,
-            "Excel Workbook (*.xlsx);;CSV File (*.csv)"
-        )
+        if now.day != 1 or now.hour < 5:
+            return None
 
-        if not file_path:
-            return
+        previous_month = now.replace(day=1) - timedelta(days=1)
+        return previous_month.strftime("%Y-%m")
 
+    def _build_auto_report_path(self, month_key):
+        """Location for the auto-generated report: beside the ASP/CPU month logs."""
+        logs_dir = get_monthly_logs_dir_for(month_key)
+        return os.path.join(logs_dir, f"IBM_i_Monthly_Report_{month_key}.xlsx")
+
+    def _show_generation_loading(self):
+        if hasattr(self, "loading_overlay"):
+            self.loading_overlay.setGeometry(self.rect())
+            self.loading_overlay.show()
+            self.loading_overlay.raise_()
+
+    def _hide_generation_loading(self):
+        if hasattr(self, "loading_overlay"):
+            self.loading_overlay.hide()
+
+    def _on_generation_finished(self, file_path, success):
+        self._hide_generation_loading()
+        if success:
+            self._last_auto_report_month = self._pending_generated_month
+            if hasattr(self, "month_combo") and self.month_combo is not None:
+                self.month_combo.setCurrentText(self._pending_generated_month)
+            QMessageBox.information(
+                self,
+                "Monthly Report Generated",
+                f"Monthly report successfully generated to:\n{file_path}"
+            )
+        else:
+            QMessageBox.critical(
+                self,
+                "Monthly Report Error",
+                f"Unable to generate the monthly report at:\n{file_path}"
+            )
+        self._pending_generated_month = None
+
+    def generate_previous_month_report(self, now=None, *_args):
+        """Generate or regenerate the previous month report immediately for the current app state."""
+        if now is None or isinstance(now, bool):
+            now = datetime.now()
+        elif not hasattr(now, "replace"):
+            now = datetime.now()
+
+        previous_month = now.replace(day=1) - timedelta(days=1)
+        month_key = previous_month.strftime("%Y-%m")
+        file_path = self._build_auto_report_path(month_key)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+        if getattr(self, "_report_generation_worker", None) is not None and self._report_generation_worker.isRunning():
+            return file_path
+
+        self._pending_generated_month = month_key
+        self._show_generation_loading()
+        self._report_generation_worker = GenerateReportWorker(self, month_key, file_path)
+        self._report_generation_worker.finished.connect(self._on_generation_finished)
+        self._report_generation_worker.start()
+        return file_path
+
+    def _save_monthly_report_to_file(self, month_key, file_path, silent=False):
+        """Write the report workbook or CSV without prompting the user."""
         cpu_report = self._build_month_report(month_key, self.cpu_chart.mode, metric_filter="CPU")
         asp_report = self._build_month_report(month_key, self.asp_chart.mode, metric_filter="ASP")
         cpu_report = self._filter_report_servers(cpu_report)
@@ -635,10 +721,8 @@ class MonthlyReportWidget(QWidget):
                     day_cell_font = Font(name="Segoe UI", size=10, bold=True, color="1F2937")
 
                     lpar_header_fill = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
-                    
                     fill_green = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
                     font_green = Font(name="Segoe UI", size=10, color="276A3C")
-
                     fill_red = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
                     font_red = Font(name="Segoe UI", size=10, bold=True, color="C00000")
 
@@ -653,10 +737,8 @@ class MonthlyReportWidget(QWidget):
                         sheet_name = str(server_name)[:31]
                         lpar_ws = wb.create_sheet(title=sheet_name)
                         lpar_ws.views.sheetView[0].showGridLines = True
-
                         lpar_ws["A1"] = f"LPAR Performance Matrix — {server_name}"
                         lpar_ws["A1"].font = lpar_title_font
-
                         lpar_ws["A2"] = f"Period: {m_name} ({month_key})"
                         lpar_ws["A2"].font = lpar_sub_font
 
@@ -724,31 +806,86 @@ class MonthlyReportWidget(QWidget):
                             lpar_ws.column_dimensions[col_letter].width = 11
 
                     wb.save(file_path)
-
                 except ImportError:
                     csv_path = file_path.rsplit(".", 1)[0] + ".csv"
                     self._write_reports_to_csv(cpu_report, asp_report, csv_path)
-                    QMessageBox.information(
-                        self,
-                        "Exported as CSV",
-                        f"openpyxl is not installed. Exported monthly report as CSV instead to:\n{csv_path}"
-                    )
+                    if not silent:
+                        QMessageBox.information(
+                            self,
+                            "Exported as CSV",
+                            f"openpyxl is not installed. Exported monthly report as CSV instead to:\n{csv_path}"
+                        )
                     return
             else:
                 self._write_reports_to_csv(cpu_report, asp_report, file_path)
 
-            QMessageBox.information(
-                self,
-                "Export Successful",
-                f"Monthly report successfully exported to:\n{file_path}"
-            )
+            if not silent:
+                QMessageBox.information(
+                    self,
+                    "Export Successful",
+                    f"Monthly report successfully exported to:\n{file_path}"
+                )
 
         except Exception as e:
+            if silent:
+                return False
             QMessageBox.critical(
                 self,
                 "Export Error",
                 f"An error occurred while exporting the monthly report:\n{str(e)}"
             )
+        return True
+
+    def _ensure_missing_previous_month_report(self):
+        """If the app was inactive at the scheduled time, generate the missing previous-month report on startup."""
+        now = datetime.now()
+        previous_month = now.replace(day=1) - timedelta(days=1)
+        month_key = previous_month.strftime("%Y-%m")
+        report_path = self._build_auto_report_path(month_key)
+
+        if os.path.exists(report_path):
+            self._last_auto_report_month = month_key
+            return
+
+        if self._pending_generated_month == month_key:
+            return
+
+        self.generate_previous_month_report(now)
+
+    def _check_auto_monthly_report(self):
+        """Generate and save the prior month report at 05:00 on the 1st day of each month."""
+        now = datetime.now()
+        month_key = self._resolve_auto_month_report_month(now)
+        if month_key is None:
+            return
+        if self._last_auto_report_month == month_key:
+            return
+
+        report_path = self._build_auto_report_path(month_key)
+        if os.path.exists(report_path):
+            self._last_auto_report_month = month_key
+            return
+
+        os.makedirs(os.path.dirname(report_path), exist_ok=True)
+        self._save_monthly_report_to_file(month_key, report_path, silent=True)
+        self._last_auto_report_month = month_key
+
+    def export_monthly_to_excel(self):
+        """Exports CPU and ASP monthly reports into a summary sheet and separate LPAR tabs with 2-tier heatmap logic."""
+        month_key = self.month_combo.currentText() or datetime.now().strftime("%Y-%m")
+        default_filename = f"IBM_i_Monthly_Report_{month_key}.xlsx"
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Monthly Report",
+            default_filename,
+            "Excel Workbook (*.xlsx);;CSV File (*.csv)"
+        )
+
+        if not file_path:
+            return
+
+        self._save_monthly_report_to_file(month_key, file_path, silent=False)
 
     def _write_reports_to_csv(self, cpu_report, asp_report, file_path):
         """Fallback writer for CSV outputs."""
@@ -1039,6 +1176,8 @@ class MonthlyReportWidget(QWidget):
         btn_style = "background-color: #1f6feb; color: #ffffff; border: 1px solid #388bfd; font-weight: bold; padding: 4px 10px;"
         if hasattr(self, "btn_export"):
             self.btn_export.setStyleSheet(btn_style)
+        if hasattr(self, "btn_generate_previous_month"):
+            self.btn_generate_previous_month.setStyleSheet(btn_style)
 
         self.title_label.setStyleSheet(f"color: {'#ffffff' if is_dark_theme else '#1f2328'};")
         self.sync_status_label.setStyleSheet(f"color: {'#8b949e' if is_dark_theme else '#57606a'};")

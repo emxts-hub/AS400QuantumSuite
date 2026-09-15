@@ -25,9 +25,14 @@ class LoadingOverlay(QWidget):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.is_dark_theme = True
+        self.message = "Loading logs..."
 
     def set_theme(self, is_dark_theme):
         self.is_dark_theme = is_dark_theme
+        self.update()
+
+    def set_message(self, message):
+        self.message = message or "Loading logs..."
         self.update()
 
     def paintEvent(self, a0):
@@ -37,7 +42,7 @@ class LoadingOverlay(QWidget):
             mask_color = QColor(13, 17, 23, 180) if self.is_dark_theme else QColor(246, 248, 250, 180)
             painter.fillRect(self.rect(), mask_color)
 
-            card_width, card_height = 200, 60
+            card_width, card_height = 220, 60
             cx, cy = self.rect().center().x(), self.rect().center().y()
             card_rect = (cx - card_width // 2, cy - card_height // 2, card_width, card_height)
 
@@ -57,7 +62,7 @@ class LoadingOverlay(QWidget):
                 card_width,
                 card_height,
                 Qt.AlignmentFlag.AlignCenter,
-                "Loading log data...",
+                self.message,
             )
         finally:
             painter.end()
@@ -372,14 +377,22 @@ class LogViewerWidget(QWidget):
     def on_buffer_changed(self):
         value = self.buffer_combo.currentText()
         self.log_buffer_limit = None if value == "All" else int(value)
+
+        # Let the UI repaint before the heavy view refresh so the loading overlay can display.
+        QTimer.singleShot(0, self._apply_buffer_rebuild)
+
+    def _apply_buffer_rebuild(self):
+        self._show_loading("Loading logs...")
         self.populate_views()
+        QTimer.singleShot(150, self._hide_loading)
 
     def resizeEvent(self, a0):
         super().resizeEvent(a0)
         if hasattr(self, "loading_overlay"):
             self.loading_overlay.setGeometry(self.rect())
 
-    def _show_loading(self):
+    def _show_loading(self, message="Loading log data..."):
+        self.loading_overlay.set_message(message)
         self.loading_overlay.setGeometry(self.rect())
         self.loading_overlay.show()
         self.loading_overlay.raise_()
@@ -555,6 +568,12 @@ class LogViewerWidget(QWidget):
         self.asp_table.setFixedHeight(dynamic_height)
         self.cpu_table.setFixedHeight(dynamic_height)
 
+    def _get_recent_date_options(self):
+        available_dates = sorted(self.log_data_store.keys(), reverse=True)
+        if not available_dates:
+            return [date.today().strftime("%Y-%m-%d")]
+        return available_dates[: self.max_history_days]
+
     def _on_history_loaded(self, result):
         self._history_loading = False
 
@@ -581,7 +600,7 @@ class LogViewerWidget(QWidget):
         self.date_combo.blockSignals(True)
         self.date_combo.clear()
 
-        available_dates = sorted(self.log_data_store.keys(), reverse=True)
+        available_dates = self._get_recent_date_options()
         if available_dates:
             self.date_combo.addItems(available_dates)
             if self._date_selected_by_user and current_selection in available_dates:
@@ -678,7 +697,10 @@ class LogViewerWidget(QWidget):
     def on_date_changed(self):
         if not self.date_combo.signalsBlocked():
             self._date_selected_by_user = True
-        self._show_loading()
+        QTimer.singleShot(0, self._apply_date_rebuild)
+
+    def _apply_date_rebuild(self):
+        self._show_loading("Loading logs...")
         self.populate_views()
         QTimer.singleShot(150, self._hide_loading)
 
@@ -702,7 +724,7 @@ class LogViewerWidget(QWidget):
 
         if not self.active_lpars:
             if self.log_data_store:
-                available_dates = sorted(self.log_data_store.keys(), reverse=True)
+                available_dates = self._get_recent_date_options()
                 if available_dates and self.date_combo.count() == 0:
                     self.date_combo.addItems(available_dates)
                 if not self.date_combo.currentText() and available_dates:

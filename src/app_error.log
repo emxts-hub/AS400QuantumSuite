@@ -2769,3 +2769,52 @@ Traceback (most recent call last):
     runnable.signals.server_fetched.emit(result)
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 RuntimeError: wrapped C/C++ object of type LparWorkerSignals has been deleted
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\monthly_report.py", line 431, in generate_previous_month_report
+    previous_month = now.replace(day=1) - timedelta(days=1)
+                     ^^^^^^^^^^^
+AttributeError: 'bool' object has no attribute 'replace'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\monthly_report.py", line 431, in generate_previous_month_report
+    previous_month = now.replace(day=1) - timedelta(days=1)
+                     ^^^^^^^^^^^
+AttributeError: 'bool' object has no attribute 'replace'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\monthly_report.py", line 431, in generate_previous_month_report
+    previous_month = now.replace(day=1) - timedelta(days=1)
+                     ^^^^^^^^^^^
+AttributeError: 'bool' object has no attribute 'replace'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\monthly_report.py", line 431, in generate_previous_month_report
+    previous_month = now.replace(day=1) - timedelta(days=1)
+                     ^^^^^^^^^^^
+AttributeError: 'bool' object has no attribute 'replace'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\monthly_report.py", line 431, in generate_previous_month_report
+    previous_month = now.replace(day=1) - timedelta(days=1)
+                     ^^^^^^^^^^^
+AttributeError: 'bool' object has no attribute 'replace'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\monthly_report.py", line 431, in generate_previous_month_report
+    previous_month = now.replace(day=1) - timedelta(days=1)
+                     ^^^^^^^^^^^
+AttributeError: 'bool' object has no attribute 'replace'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\monthly_report.py", line 431, in generate_previous_month_report
+    previous_month = now.replace(day=1) - timedelta(days=1)
+                     ^^^^^^^^^^^
+AttributeError: 'bool' object has no attribute 'replace'
