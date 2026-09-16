@@ -76,10 +76,10 @@ Includes:
 ## 3. Screenshot Placeholders
 
 - **Main Dashboard**  
-![alt text](image-7.png)
+![alt text](image.png)
 
 - **LPAR Monitoring**  
-
+![alt text](image-7.png)
 
 - **Log Viewer & Backup Management**  
 ![alt text](image-8.png)
