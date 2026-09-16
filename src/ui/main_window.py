@@ -6,28 +6,61 @@ import threading
 import time
 from typing import cast
 from collections import deque
-from config import APP_VERSION, APP_NAME, load_email_alerts
+from config import APP_VERSION, APP_NAME, load_email_alerts, load_login_credentials, get_ibmi_password, save_ibmi_password
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from PyQt6.QtCore import Qt, QTimer, QThreadPool, QCoreApplication, QPointF, QRectF, QPropertyAnimation, QAbstractAnimation, pyqtProperty, QSize
-from PyQt6.QtGui import QColor, QFont, QCursor, QIcon, QPainter, QPen, QPolygonF, QBrush
+from PyQt6.QtCore import Qt, QTimer, QThread, QThreadPool, QEventLoop, QCoreApplication, QPointF, QRectF, QPropertyAnimation, QAbstractAnimation, pyqtProperty, QSize, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QCursor, QIcon, QPixmap, QPainter, QPen, QPolygonF, QBrush
 from PyQt6.QtWidgets import (
-    QMainWindow, QTabWidget, QWidget, QVBoxLayout,
+    QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton,
     QScrollArea, QFrame, QGridLayout, QProgressBar,
     QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QApplication, QSizePolicy, QComboBox
+    QApplication, QSizePolicy, QComboBox, QCheckBox, QStackedWidget, QPlainTextEdit, QTabWidget, QMessageBox
 )
 
 from worker import SingleLparRunnable, has_vpn_ip, reset_asp_alert_sound, stop_asp_alert_sound
 from ui.log_viewer import LogViewerWidget
 from ui.monthly_report import MonthlyReportWidget
+from ui.backup_manage import BackupManagementWidget
 from ui.widgets import RefreshStatusWidget, StatusBadgesWidget, SubsystemGridWidget, ThemeLoadingDialog
-from dialogs import LparSettingsDialog
+from dialogs import ActiveJobsDialog, LparSettingsDialog, TestEmailThread
 from version_worker import VersionCheckWorker
-from config import SERVER_CONFIGS, EXPECTED_SUBSYSTEMS, get_resource_path
+from config import SERVER_CONFIGS, EXPECTED_SUBSYSTEMS, EXPECTED_PORTS, save_all_configs, get_resource_path, get_email_password
 from ui.styles import DARK_STYLESHEET, LIGHT_STYLESHEET
+
+
+class CredentialCheckThread(QThread):
+    results_ready = pyqtSignal(object)
+
+    def __init__(self, server_configs, username, password):
+        super().__init__()
+        self.server_configs = dict(server_configs)
+        self.username = username
+        self.password = password
+
+    def run(self):
+        results = {}
+        for server_name, cfg in self.server_configs.items():
+            conn = None
+            try:
+                host = cfg.get("host", "") if isinstance(cfg, dict) else str(cfg)
+                db = cfg.get("db", "*LOCAL") if isinstance(cfg, dict) else "*LOCAL"
+                conn = __import__("worker")._new_connection(host, db, self.username, self.password)
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1 FROM SYSIBM.SYSDUMMY1")
+                cursor.fetchone()
+                results[server_name] = {"status": "OK", "message": "Credentials accepted."}
+            except Exception as exc:
+                results[server_name] = {"status": "AUTH_ERROR", "message": str(exc)}
+            finally:
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+        self.results_ready.emit(results)
 
 
 class DualSparklineWidget(QWidget):
@@ -350,6 +383,7 @@ class LparCardWidget(QFrame):
         self.current_cpu = 0.0
         self.current_asp = 0.0
         self.current_jobs = 0
+        self.current_active_jobs_detail = []
         self.current_subsystems_data = []
         self.current_ports_data = []
         self.config_key = server_name
@@ -371,6 +405,7 @@ class LparCardWidget(QFrame):
         self._alert_animation.setKeyValueAt(0.5, 1.0)
         self._alert_animation.setEndValue(0.0)
         self._alert_animation.setLoopCount(-1)
+        self.active_jobs_dialog = None
         
         self.setMinimumWidth(0)
         self.setFixedHeight(350)
@@ -419,8 +454,12 @@ class LparCardWidget(QFrame):
         jobs_layout = QHBoxLayout()
         self.jobs_title_label = QLabel("Active Jobs")
         self.jobs_title_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        self.jobs_val_label = QLabel("0")
+        self.jobs_val_label = QPushButton("0")
         self.jobs_val_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        self.jobs_val_label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.jobs_val_label.setToolTip("View active jobs")
+        self.jobs_val_label.setFixedWidth(70)
+        self.jobs_val_label.clicked.connect(self.show_active_jobs)
         
         jobs_layout.addWidget(self.jobs_title_label)
         jobs_layout.addStretch()
@@ -472,8 +511,13 @@ class LparCardWidget(QFrame):
 
         label_color = "#c9d1d9" if is_dark_theme else "#57606a"
         value_color = "#ffffff" if is_dark_theme else "#1f2328"
-        for label in (self.name_label, self.jobs_val_label):
+        for label in (self.name_label,):
             label.setStyleSheet(f"color: {value_color}; background-color: transparent;")
+
+        self.jobs_val_label.setStyleSheet(
+            f"QPushButton {{ color: {value_color}; background-color: transparent; border: none; }}"
+            "QPushButton:hover { color: #58a6ff; }"
+        )
 
         for label in (self.jobs_title_label, self.subsystems_title_label, self.network_title_label, self.health_label):
             label.setStyleSheet(f"color: {label_color}; background-color: transparent;")
@@ -510,6 +554,22 @@ class LparCardWidget(QFrame):
             parent=self
         )
         dialog.show_centered()
+
+    def show_active_jobs(self):
+        if self.active_jobs_dialog is None:
+            self.active_jobs_dialog = ActiveJobsDialog(
+                self.server_name,
+                self.current_active_jobs_detail,
+                parent=self,
+            )
+            self.active_jobs_dialog.finished.connect(self._clear_active_jobs_dialog)
+        self.active_jobs_dialog.update_jobs(self.current_active_jobs_detail)
+        self.active_jobs_dialog.show()
+        self.active_jobs_dialog.raise_()
+        self.active_jobs_dialog.activateWindow()
+
+    def _clear_active_jobs_dialog(self):
+        self.active_jobs_dialog = None
 
     def set_card_style(self, is_critical=False, force=False):
         key = (self.is_dark_theme, bool(is_critical))
@@ -701,6 +761,7 @@ class LparCardWidget(QFrame):
         cpu = float(data.get("cpu", 0.0))
         asp = float(data.get("asp", 0.0))
         jobs = int(data.get("jobs", 0))
+        active_jobs_detail = data.get("active_jobs_detail", [])
         subsystems = data.get("subsystems", [])
         ports = data.get("ports", [])
 
@@ -711,6 +772,7 @@ class LparCardWidget(QFrame):
             cpu = last_cpu
             asp = last_asp
             jobs = last_jobs
+            active_jobs_detail = self.current_active_jobs_detail
         elif status in ("ONLINE", "DEGRADED"):
             if completed_at:
                 self.last_success_ts = completed_at
@@ -732,6 +794,7 @@ class LparCardWidget(QFrame):
             cpu,
             asp,
             int(jobs),
+            repr(active_jobs_detail),
             repr(subsystems),
             repr(ports),
             is_uncapped,
@@ -750,6 +813,7 @@ class LparCardWidget(QFrame):
         self.current_cpu = cpu
         self.current_asp = asp
         self.current_jobs = jobs
+        self.current_active_jobs_detail = active_jobs_detail if isinstance(active_jobs_detail, list) else []
         self.current_subsystems_data = subsystems
         self.current_ports_data = ports
 
@@ -809,6 +873,8 @@ class LparCardWidget(QFrame):
         jobs_text = f"{jobs:,}"
         if self.jobs_val_label.text() != jobs_text:
             self.jobs_val_label.setText(jobs_text)
+        if self.active_jobs_dialog is not None:
+            self.active_jobs_dialog.update_jobs(self.current_active_jobs_detail)
 
         self._sync_health_summary()
         self._refresh_subsystem_widget(self.current_subsystems_data)
@@ -1024,68 +1090,65 @@ def resource_path(relative_path):
 
 class AppInfoDialog(QDialog):
 
-  def __init__(self, version_str: str, parent=None):
-    super().__init__(parent)
-    self.setWindowTitle("About this App")
-    self.setModal(True)
-    self.setFixedWidth(460)
-    self.setMinimumHeight(340)  # Tightened height to remove empty space
-    self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+    def __init__(self, version_str: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("About this App")
+        self.setModal(True)
+        self.setFixedWidth(460)
+        self.setMinimumHeight(350)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
 
-    self.info_label = QLabel(self._build_info_text(version_str))
-    self.info_label.setWordWrap(True)
-    self.info_label.setTextInteractionFlags(
-        Qt.TextInteractionFlag.TextSelectableByMouse
-    )
-    self.info_label.setAlignment(
-        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-    )
+        self.info_label = QLabel(self._build_info_text(version_str))
+        self.info_label.setWordWrap(True)
+        self.info_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.info_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
 
-    layout = QVBoxLayout(self)
-    layout.setContentsMargins(16, 16, 16, 16)
-    layout.addWidget(self.info_label)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.addWidget(self.info_label)
 
-    self.setStyleSheet(
-        "QDialog { background-color: #0f172a; border: 1px solid #1e293b;"
-        " border-radius: 10px; }"
-        "QLabel { background-color: transparent; color: #f8fafc; padding: 4px;"
-        " font-size: 13px; line-height: 1.5; }"
-    )
+        self.setStyleSheet(
+            "QDialog { background-color: #0f172a; border: 1px solid #1e293b;"
+            " border-radius: 10px; }"
+            "QLabel { background-color: transparent; color: #f8fafc; padding: 4px;"
+            " font-size: 13px; line-height: 1.5; }"
+        )
 
-  @staticmethod
-  def _build_info_text(version_str: str) -> str:
-    return (
-        "<div style='font-family: Segoe UI, sans-serif; color: #e2e8f0;'>"
-        "<h2 style='margin: 0 0 6px 0; color: #38bdf8; font-size: 18px;"
-        " font-weight: bold; letter-spacing: 0.5px;'>AS/400 QUANTUM</h2>"
-        "<div style='color: #cbd5e1; font-size: 12px; margin-bottom: 12px;'>"
-        "<b>System:</b> IBM i (AS/400) Real-time Monitoring & Telemetry<br>"
-        "<b>Stack:</b> Python | SQL<br>"
-        f"<b>Version:</b> {version_str}"
-        "</div>"
-        "<hr style='border: none; border-top: 1px solid #334155; margin: 12px"
-        " 0;'>"
-        "<div style='margin-bottom: 12px;'>"
-        "<b style='color: #f1f5f9; font-size: 13px;'>Key Features:</b>"
-        "<ul style='margin: 6px 0 0 16px; padding: 0; color: #cbd5e1;"
-        " font-size: 12px; line-height: 1.6;'>"
-        "<li>Real-Time LPAR Health Monitoring (CPU / ASP / Active Jobs)</li>"
-        "<li>System Service & Subsystem Status Tracking</li>"
-        "<li>Historical Log Vault & Daily LPAR Summaries</li>"
-        "<li>Monthly Performance Analytics & Excel Reporting</li>"
-        "</ul>"
-        "</div>"
-        "<hr style='border: none; border-top: 1px solid #334155; margin: 12px"
-        " 0;'>"
-        "<div style='color: #94a3b8; font-size: 11px; line-height: 1.5;'>"
-        "<b>© 2026 Reymart De Lara.</b> All Rights Reserved.<br>"
-        "<span style='color: #cbd5e1;'>Created & Developed by Reymart De"
-        " Lara</span><br>"
-        "<span style='color: #64748b; font-size: 10px;'>IBM i and AS/400 are"
-        " registered trademarks of IBM Corp.</span>"
-        "</div>"
-        "</div>"
-    )
+    @staticmethod
+    def _build_info_text(version_str: str) -> str:
+        return (
+            "<div style='font-family: Segoe UI, sans-serif; color: #e2e8f0;'>"
+            "<h2 style='margin: 0 0 6px 0; color: #38bdf8; font-size: 18px;"
+            " font-weight: bold; letter-spacing: 0.5px;'>AS400 QUANTUM SUITE</h2>"
+            "<div style='color: #cbd5e1; font-size: 12px; margin-bottom: 12px;'>"
+            "<b>System:</b> IBM i (AS/400) Real-time Monitoring & Telemetry<br>"
+            "<b>Stack:</b> Python | PyQt6 | DB2 ODBC | Firebase<br>"
+            f"<b>Version:</b> {version_str}"
+            "</div>"
+            "<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'>"
+            "<div style='margin-bottom: 12px;'>"
+            "<b style='color: #f1f5f9; font-size: 13px;'>Key Features:</b>"
+            "<ul style='margin: 6px 0 0 16px; padding: 0; color: #cbd5e1;"
+            " font-size: 12px; line-height: 1.6;'>"
+            "<li>Real-Time LPAR Health Monitoring (CPU / ASP / Active Jobs)</li>"
+            "<li>Automated Backup Management & Job Duration Analytics</li>"
+            "<li>Subsystem, Network Port & Service Status Tracking</li>"
+            "<li>Monthly Historical JSON Vault & Deduplicated Logging</li>"
+            "<li>Monthly Performance Analytics & Excel Reporting</li>"
+            "</ul>"
+            "</div>"
+            "<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'>"
+            "<div style='color: #94a3b8; font-size: 11px; line-height: 1.5;'>"
+            "<b>© 2026 Reymart De Lara.</b> All Rights Reserved.<br>"
+            "<span style='color: #cbd5e1;'>Created & Developed by Reymart De Lara</span><br>"
+            "<span style='color: #64748b; font-size: 10px;'>IBM i and AS/400 are registered trademarks of IBM Corp.</span>"
+            "</div>"
+            "</div>"
+        )
 
 
 class IBMiDashboard(QMainWindow):
@@ -1106,6 +1169,7 @@ class IBMiDashboard(QMainWindow):
         self.resize(1750, 950)
 
         self.is_monitoring = False
+        self.credentials_validated = False
         self.card_widgets = {}
         self.active_server_configs = dict(SERVER_CONFIGS)
         self.latest_results_cache = {}
@@ -1138,22 +1202,113 @@ class IBMiDashboard(QMainWindow):
         self.retry_backoff_seconds = 15
         self.max_retry_backoff_seconds = 120
 
-        self.tabs = QTabWidget()
-        self.setCentralWidget(self.tabs)
+        self.central_widget = QWidget(self)
+        self.central_layout = QHBoxLayout(self.central_widget)
+        self.central_layout.setContentsMargins(0, 0, 0, 0)
+        self.central_layout.setSpacing(0)
+        self.setCentralWidget(self.central_widget)
+
+        self.sidebar = QWidget(self.central_widget)
+        self.sidebar_collapsed = True
+        self.sidebar.setFixedWidth(78)
+        self.sidebar_layout = QVBoxLayout(self.sidebar)
+        self.sidebar_layout.setContentsMargins(10, 10, 10, 10)
+        self.sidebar_layout.setSpacing(12)
+
+        self.sidebar_header = QWidget(self.sidebar)
+        self.sidebar_header_layout = QHBoxLayout(self.sidebar_header)
+        self.sidebar_header_layout.setContentsMargins(8, 8, 8, 8)
+        self.sidebar_header_layout.setSpacing(8)
+
+        self.sidebar_logo = QLabel()
+        self.sidebar_logo.setFixedSize(28, 28)
+        self.sidebar_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.sidebar_logo.setStyleSheet("background-color: transparent;")
+        self.sidebar_logo.setPixmap(
+            QPixmap(resource_path("logo.png")).scaled(
+                28, 28,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+        self.sidebar_header_layout.addWidget(self.sidebar_logo)
+
+        self.sidebar_brand = QLabel("AS400 Qua")
+        self.sidebar_brand.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
+        self.sidebar_brand.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.sidebar_brand.setFixedHeight(32)
+        self.sidebar_brand.setWordWrap(False)
+        self.sidebar_header_layout.addWidget(self.sidebar_brand)
+
+        self.sidebar_toggle_btn = QPushButton("›")
+        self.sidebar_toggle_btn.setFixedWidth(28)
+        self.sidebar_toggle_btn.setFixedHeight(28)
+        self.sidebar_toggle_btn.setStyleSheet("QPushButton { color: #a1a1a1; font-size: 24px; font-weight: bold; background: transparent; border: none; padding: 0; }")
+        self.sidebar_toggle_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.sidebar_toggle_btn.clicked.connect(self.toggle_sidebar)
+        self.sidebar_header_layout.addWidget(self.sidebar_toggle_btn, 0, Qt.AlignmentFlag.AlignRight)
+        self.sidebar_layout.addWidget(self.sidebar_header)
+
+        self.nav_buttons = {}
+        self.nav_button_labels = {}
+        nav_items = [
+            ("Live Monitor", "monitor", "monitor.png"),
+            ("Log Viewer", "log_viewer", "logs.png"),
+            ("Monthly ASP/CPU Report", "monthly_report", "monthly.png"),
+            ("Backup Management", "backup_management", "backup.png"),
+            ("Settings && Credentials", "settings", "settings.png")
+        ]
+        for label, key, icon_file in nav_items:
+            btn = QPushButton(label)
+            btn.setIcon(QIcon(resource_path(icon_file)))
+            btn.setIconSize(QSize(24, 24))
+            btn.setCheckable(True)
+            btn.setObjectName(f"nav_{key}")
+            btn.setToolTip(label)
+            btn.clicked.connect(lambda checked, page_key=key: self.set_current_page(page_key))
+            btn.setFixedHeight(56)
+            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            btn.setStyleSheet("QPushButton { text-align: left; padding-left: 18px; padding-right: 18px; border: none; border-radius: 16px; spacing: 12px; }")
+            self.nav_buttons[key] = btn
+            self.nav_button_labels[key] = label
+            self.sidebar_layout.addWidget(btn)
+
+        self.sidebar_layout.addStretch(1)
+
+        self.content_stack = QStackedWidget(self.central_widget)
+        self.content_stack.setObjectName("contentStack")
 
         self.live_monitor_widget = QWidget()
         self.init_live_monitor_ui()
-        self.tabs.addTab(self.live_monitor_widget, "📊 Live Monitor")
+        self.content_stack.addWidget(self.live_monitor_widget)
 
         self.log_viewer_widget = LogViewerWidget()
         self.log_viewer_widget.set_theme(self.is_dark_theme)
-        self.tabs.addTab(self.log_viewer_widget, "📜 Log Viewer History")
+        self.content_stack.addWidget(self.log_viewer_widget)
+
+        self.settings_widget = QWidget()
+        self._init_settings_page()
+        self.content_stack.addWidget(self.settings_widget)
+
+        self.backup_management_widget = BackupManagementWidget(
+            self.active_server_configs,
+            self._backup_credentials,
+            lambda: self.credentials_validated,
+            self._set_backup_status,
+        )
+        self.content_stack.addWidget(self.backup_management_widget)
 
         self.monthly_report_widget = MonthlyReportWidget()
         self.log_viewer_widget.monthly_report_widget = self.monthly_report_widget
         setattr(self.monthly_report_widget, "parent_log_viewer", self.log_viewer_widget)
         self.monthly_report_widget.set_theme(self.is_dark_theme)
-        self.tabs.addTab(self.monthly_report_widget, "📈 Monthly ASP/CPU Report")
+        self.content_stack.addWidget(self.monthly_report_widget)
+
+        self.central_layout.addWidget(self.sidebar)
+        self.central_layout.addWidget(self.content_stack)
+        self.set_current_page("monitor")
+        self.sidebar_collapsed = True
+        self._apply_sidebar_state()
 
         self.apply_theme_state()
 
@@ -1179,6 +1334,700 @@ class IBMiDashboard(QMainWindow):
         self.startup_loading_overlay.setGeometry(self.rect())
         self.startup_loading_overlay.raise_()
         self.startup_loading_overlay.show()
+
+    def _current_nav_key(self):
+        current_widget = self.content_stack.currentWidget()
+        widget_map = {
+            "monitor": self.live_monitor_widget,
+            "log_viewer": self.log_viewer_widget,
+            "backup_management": self.backup_management_widget,
+            "monthly_report": self.monthly_report_widget,
+            "settings": self.live_monitor_widget,
+        }
+        for key, widget in widget_map.items():
+            if widget is current_widget:
+                return key
+        return "monitor"
+
+    def set_current_page(self, page_key):
+        mapping = {
+            "monitor": 0,
+            "log_viewer": 1,
+            "settings": 2,
+            "backup_management": 3,
+            "monthly_report": 4,
+        }
+        if page_key in mapping:
+            self.content_stack.setCurrentIndex(mapping[page_key])
+            for key, button in self.nav_buttons.items():
+                button.setChecked(key == page_key)
+            self._update_nav_button_styles(page_key)
+            if page_key == "backup_management" and self.credentials_validated:
+                self.backup_management_widget.start_hourly_refresh()
+
+    def toggle_sidebar(self):
+        self.sidebar_collapsed = not self.sidebar_collapsed
+        self._apply_sidebar_state()
+
+    def _apply_sidebar_state(self):
+        self.sidebar.setFixedWidth(78 if self.sidebar_collapsed else 290)
+        self.sidebar_logo.setVisible(not self.sidebar_collapsed)
+        self.sidebar_brand.setVisible(not self.sidebar_collapsed)
+        if not self.sidebar_collapsed:
+            self.sidebar_logo.setFixedSize(28, 28)
+            self.sidebar_logo.setPixmap(
+                QPixmap(resource_path("logo.png")).scaled(
+                    28, 28,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+            self.sidebar_brand.setText("AS400 Quantum")
+            self.sidebar_brand.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.sidebar_toggle_btn.setText("《" if not self.sidebar_collapsed else "》")
+
+        nav_items = {
+            "monitor": ("Live Monitor", "monitor.png"),
+            "log_viewer": ("Log Viewer", "logs.png"),
+            "backup_management": ("Backup Management", "backup.png"),
+            "monthly_report": ("Monthly ASP/CPU Report", "monthly.png"),
+            "settings": ("Settings && Credentials", "settings.png")
+        }
+
+        for key, button in self.nav_buttons.items():
+            label, icon_file = nav_items.get(key, (key, "logo.png"))
+            button.setIcon(QIcon(resource_path(icon_file)))
+            button.setIconSize(QSize(26, 26))
+            button.setToolTip(label)
+            button.setText(label if not self.sidebar_collapsed else "")
+            button.setFixedWidth(54 if self.sidebar_collapsed else 200)
+            button.setStyleSheet(
+                "QPushButton { text-align: left; padding-left: 10px; padding-right: 10px; }"
+                if not self.sidebar_collapsed else
+                "QPushButton { text-align: center; padding-left: 0; padding-right: 0; icon-size: 30px; }"
+            )
+
+        self._update_nav_button_styles(self._current_nav_key())
+
+    def _update_nav_button_styles(self, active_key):
+        dark = self.is_dark_theme
+        if dark:
+            sidebar_bg = "#171f2e"
+            sidebar_inner = "#1d2430"
+            active_bg = "#2d5dff"
+            active_text = "#f3f6ff"
+            inactive_bg = "#202b39"
+            inactive_text = "#dfe7ff"
+            hover_bg = "#24314d"
+            brand_text = "#f8fbff"
+        else:
+            sidebar_bg = "#edf2f8"
+            sidebar_inner = "#f3f6fa"
+            active_bg = "#2d5dff"
+            active_text = "#ffffff"
+            inactive_bg = "#f3f6fa"
+            inactive_text = "#111827"
+            hover_bg = "#e7edf8"
+            brand_text = "#1f2937"
+
+        self.sidebar.setStyleSheet(
+            f"QWidget {{ background-color: {sidebar_bg}; border: none; border-radius: 0; }}"
+        )
+        self.sidebar_brand.setStyleSheet(
+            f"color: {brand_text}; background-color: transparent; padding: 8px 0; font-weight: bold;"
+        )
+
+        for key, button in self.nav_buttons.items():
+            is_active = key == active_key
+            button.setIconSize(QSize(60, 60) if is_active else QSize(30, 30))
+            button.setText(self.nav_button_labels.get(key, key) if not self.sidebar_collapsed else "")
+            if self.sidebar_collapsed:
+                button.setFixedWidth(64)
+                button.setStyleSheet(
+                    f"QPushButton {{ background-color: {'#2d5dff' if is_active else inactive_bg}; color: {active_text if is_active else inactive_text}; "
+                    f"border: none; border-radius: 18px; padding: 0; font-weight: 400; font-size: 12px; "
+                    f"text-align: center; qproperty-iconSize: {60 if is_active else 30}px; }} "
+                    f"QPushButton:hover {{ background-color: {active_bg if is_active else hover_bg}; color: {active_text if is_active else inactive_text}; }}"
+                )
+            else:
+                button.setFixedWidth(220)
+                button.setStyleSheet(
+                    f"QPushButton {{ background-color: {'#2d5dff' if is_active else inactive_bg}; color: {active_text if is_active else inactive_text}; "
+                    f"border: none; border-radius: 18px; padding: 0 18px; font-weight: 400; font-size: 12px; "
+                    f"text-align: left; spacing: 12px; }} "
+                    f"QPushButton:hover {{ background-color: {active_bg if is_active else hover_bg}; color: {active_text if is_active else inactive_text}; }}"
+                )
+            button.setFixedHeight(56)
+            button.setMinimumWidth(42)
+
+    def _init_settings_page(self):
+        layout = QVBoxLayout(self.settings_widget)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        settings_header = QHBoxLayout()
+        title = QLabel("IBM i Access Credentials")
+        title.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
+        title.setStyleSheet("color: #1f2937; background-color: transparent;")
+        settings_header.addWidget(title)
+        settings_header.addStretch()
+
+        self.theme_btn = QPushButton("☀ Light Theme")
+        self.theme_btn.setFixedHeight(35)
+        self.theme_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.theme_btn.setToolTip("Switch between dark and light themes")
+        self.theme_btn.clicked.connect(self.toggle_theme)
+        settings_header.addWidget(self.theme_btn)
+        layout.addLayout(settings_header)
+
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet("color: #d0d7de; background-color: transparent;")
+        layout.addWidget(line)
+
+        form_row = QHBoxLayout()
+        form_row.setSpacing(6)
+
+        user_wrapper = QHBoxLayout()
+        user_wrapper.setSpacing(6)
+        user_label = QLabel("Username:")
+        user_label.setFixedWidth(68)
+        user_label.setStyleSheet("color: #1f2937; background-color: transparent; font-size: 14px; font-weight: 500;")
+        user_wrapper.addWidget(user_label)
+
+        self.user_input = QLineEdit("")
+        self.user_input.setPlaceholderText("Username")
+        self.user_input.setFont(QFont("Segoe UI", 11))
+        self.user_input.setFixedWidth(190)
+        self.user_input.setStyleSheet(
+            "QLineEdit { border: 1px solid #c7d1db; border-radius: 8px; padding: 10px 12px; background-color: #ffffff; color: #1f2937; }"
+        )
+        user_wrapper.addWidget(self.user_input)
+        form_row.addLayout(user_wrapper)
+
+        pass_wrapper = QHBoxLayout()
+        pass_wrapper.setSpacing(6)
+        pass_label = QLabel("Password:")
+        pass_label.setFixedWidth(68)
+        pass_label.setStyleSheet("color: #1f2937; background-color: transparent; font-size: 14px; font-weight: 500;")
+        pass_wrapper.addWidget(pass_label)
+
+        self.pass_input = QLineEdit("")
+        self.pass_input.setPlaceholderText("Password")
+        self.pass_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.pass_input.setFont(QFont("Segoe UI", 11))
+        self.pass_input.setFixedWidth(190)
+        self.pass_input.setStyleSheet(
+            "QLineEdit { border: 1px solid #c7d1db; border-radius: 8px; padding: 10px 12px; background-color: #ffffff; color: #1f2937; }"
+        )
+        pass_wrapper.addWidget(self.pass_input)
+        form_row.addLayout(pass_wrapper)
+
+        saved_login = load_login_credentials()
+        if saved_login.get("remember") and saved_login.get("username"):
+            self.user_input.setText(saved_login["username"])
+            self.pass_input.setText(get_ibmi_password(saved_login["username"]))
+        self.remember_creds_checkbox = QCheckBox("Remember credentials")
+        self.remember_creds_checkbox.setChecked(bool(saved_login.get("remember", False)))
+        form_row.addWidget(self.remember_creds_checkbox)
+
+        self.toggle_btn = QPushButton("Check Login Creds")
+        self.toggle_btn.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        self.toggle_btn.setFixedHeight(42)
+        self.toggle_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.toggle_btn.clicked.connect(self.validate_login_credentials)
+        self.toggle_btn.setStyleSheet(
+            "QPushButton { background-color: #2563eb; color: white; border: none; border-radius: 8px; padding: 0 18px; }"
+            "QPushButton:hover { background-color: #1d4ed8; }"
+        )
+        form_row.addWidget(self.toggle_btn)
+
+        self.settings_btn = QPushButton("Save & Apply")
+        self.settings_btn.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        self.settings_btn.setFixedHeight(42)
+        self.settings_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.settings_btn.clicked.connect(self.save_settings_page)
+        self.settings_btn.setStyleSheet(
+            "QPushButton { background-color: #16a34a; color: white; border: none; border-radius: 8px; padding: 0 18px; }"
+            "QPushButton:hover { background-color: #15803d; }"
+        )
+        form_row.addWidget(self.settings_btn)
+
+        form_row.addStretch()
+        layout.addLayout(form_row)
+
+        self.settings_tab_widget = QWidget()
+        settings_sections_layout = QVBoxLayout(self.settings_tab_widget)
+        settings_sections_layout.setContentsMargins(0, 0, 0, 0)
+        settings_sections_layout.setSpacing(8)
+
+        credential_tab = QGroupBox("Credentials")
+        credential_layout = QVBoxLayout(credential_tab)
+        credential_layout.setContentsMargins(10, 8, 10, 8)
+
+        self.cred_log = QPlainTextEdit()
+        self.cred_log.setReadOnly(True)
+        self.cred_log.setMinimumHeight(92)
+        self.cred_log.setPlaceholderText("Credential validation log will appear here...")
+        self.cred_log.setStyleSheet(
+            "QPlainTextEdit {"
+            "  background-color: #f8fafc;"
+            "  color: #1f2937;"
+            "  border: 1px solid #d0d7de;"
+            "  border-radius: 8px;"
+            "  padding: 10px;"
+            "}"
+        )
+        self.cred_log.setPlainText("Credential validation log will appear here...")
+        credential_layout.addWidget(self.cred_log)
+        settings_sections_layout.addWidget(credential_tab)
+
+        lpar_tab = QGroupBox("LPAR Configuration")
+        lpar_layout = QVBoxLayout(lpar_tab)
+        lpar_layout.setContentsMargins(10, 8, 10, 8)
+
+        self.lpar_table = QTableWidget()
+        self.lpar_table.setColumnCount(6)
+        self.lpar_table.setHorizontalHeaderLabels([
+            "IP / Hostname", "Database Name", "Expected Subsystems",
+            "Monitored Ports (Port:Name)", "Daily Backup Name", "Journal Backup Name"
+        ])
+        self.lpar_table.setAlternatingRowColors(True)
+        self.lpar_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.lpar_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.lpar_table.setEditTriggers(QTableWidget.EditTrigger.AllEditTriggers)
+        self.lpar_table.setWordWrap(False)
+        self.lpar_table.horizontalHeader().setStretchLastSection(True)
+        self._populate_lpar_table()
+        lpar_layout.addWidget(self.lpar_table)
+
+        lpar_buttons = QHBoxLayout()
+        add_lpar_btn = QPushButton("+ Add LPAR")
+        add_lpar_btn.clicked.connect(self._add_lpar_row)
+        remove_lpar_btn = QPushButton("Remove Selected")
+        remove_lpar_btn.clicked.connect(self._remove_lpar_row)
+        lpar_buttons.addWidget(add_lpar_btn)
+        lpar_buttons.addWidget(remove_lpar_btn)
+        lpar_buttons.addStretch()
+        lpar_layout.addLayout(lpar_buttons)
+        settings_sections_layout.addWidget(lpar_tab, stretch=1)
+
+        smtp_tab = QGroupBox("SMTP / Mail Configuration")
+        smtp_layout = QVBoxLayout(smtp_tab)
+        smtp_layout.setContentsMargins(10, 8, 10, 8)
+        email_cfg = load_email_alerts()
+
+        self.smtp_enabled = QCheckBox("Enable email alerts")
+        self.smtp_enabled.setChecked(bool(email_cfg.get("enabled", False)))
+        smtp_layout.addWidget(self.smtp_enabled)
+
+        smtp_server_row = QHBoxLayout()
+        smtp_server_row.addWidget(QLabel("SMTP Server:"))
+        self.smtp_server_input = QLineEdit(str(email_cfg.get("smtp_server", "")))
+        self.smtp_server_input.setPlaceholderText("smtp.office365.com")
+        smtp_server_row.addWidget(self.smtp_server_input)
+        smtp_server_row.addWidget(QLabel("Port:"))
+        self.smtp_port_input = QLineEdit(str(email_cfg.get("port", 587)))
+        self.smtp_port_input.setFixedWidth(75)
+        smtp_server_row.addWidget(self.smtp_port_input)
+        self.smtp_tls_checkbox = QCheckBox("Use TLS")
+        self.smtp_tls_checkbox.setChecked(bool(email_cfg.get("use_tls", True)))
+        smtp_server_row.addWidget(self.smtp_tls_checkbox)
+        smtp_layout.addLayout(smtp_server_row)
+
+        smtp_auth_row = QHBoxLayout()
+        smtp_auth_row.addWidget(QLabel("Username:"))
+        self.smtp_username_input = QLineEdit(str(email_cfg.get("username", "")))
+        smtp_auth_row.addWidget(self.smtp_username_input)
+        smtp_auth_row.addWidget(QLabel("Password:"))
+        self.smtp_password_input = QLineEdit()
+        self.smtp_password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.smtp_password_input.setPlaceholderText("Leave blank to keep saved password")
+        smtp_auth_row.addWidget(self.smtp_password_input)
+        smtp_layout.addLayout(smtp_auth_row)
+
+        smtp_address_row = QHBoxLayout()
+        smtp_address_row.addWidget(QLabel("From Address:"))
+        self.smtp_from_input = QLineEdit(str(email_cfg.get("from_address", "")))
+        smtp_address_row.addWidget(self.smtp_from_input)
+        smtp_address_row.addWidget(QLabel("To Addresses:"))
+        self.smtp_to_input = QLineEdit(", ".join(email_cfg.get("to_addresses", [])))
+        self.smtp_to_input.setPlaceholderText("recipient@example.com, ...")
+        smtp_address_row.addWidget(self.smtp_to_input)
+        smtp_layout.addLayout(smtp_address_row)
+
+        alert_options_row = QHBoxLayout()
+        alert_options_row.addWidget(QLabel("Threshold %:"))
+        self.smtp_threshold_input = QLineEdit(str(email_cfg.get("threshold_percent", 40)))
+        self.smtp_threshold_input.setFixedWidth(75)
+        alert_options_row.addWidget(self.smtp_threshold_input)
+        alert_options_row.addWidget(QLabel("Cooldown minutes:"))
+        self.smtp_cooldown_input = QLineEdit(str(email_cfg.get("cooldown_minutes", 10)))
+        self.smtp_cooldown_input.setFixedWidth(75)
+        alert_options_row.addWidget(self.smtp_cooldown_input)
+        alert_options_row.addStretch()
+        smtp_layout.addLayout(alert_options_row)
+
+        runtime_options_row = QHBoxLayout()
+        runtime_options_row.addWidget(QLabel("Refresh Interval:"))
+        self.refresh_interval_combo = QComboBox()
+        self.refresh_interval_combo.addItems(["Instantly", "3s", "5s", "10s"])
+        refresh_interval_ms = int(email_cfg.get("refresh_interval_ms", 0) or 0)
+        self.refresh_interval_combo.setCurrentIndex({0: 0, 3000: 1, 5000: 2, 10000: 3}.get(refresh_interval_ms, 0))
+        runtime_options_row.addWidget(self.refresh_interval_combo)
+
+        runtime_options_row.addWidget(QLabel("Log Dedupe:"))
+        self.log_dedupe_combo = QComboBox()
+        self.log_dedupe_combo.addItems(["Off", "30s", "1m", "5m"])
+        log_dedupe_seconds = int(email_cfg.get("log_dedupe_seconds", 60) or 60)
+        self.log_dedupe_combo.setCurrentIndex({0: 0, 30: 1, 60: 2, 300: 3}.get(log_dedupe_seconds, 2))
+        runtime_options_row.addWidget(self.log_dedupe_combo)
+        runtime_options_row.addStretch()
+        smtp_layout.addLayout(runtime_options_row)
+
+        smtp_actions_row = QHBoxLayout()
+        smtp_actions_row.addStretch()
+        self.test_email_btn = QPushButton("Send Test Email")
+        self.test_email_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.test_email_btn.clicked.connect(self.send_test_email)
+        smtp_actions_row.addWidget(self.test_email_btn)
+        smtp_layout.addLayout(smtp_actions_row)
+        smtp_layout.addStretch()
+        settings_sections_layout.addWidget(smtp_tab)
+        layout.addWidget(self.settings_tab_widget)
+
+    def _backup_credentials(self):
+        return self.user_input.text().strip(), self.pass_input.text()
+
+    def _set_backup_status(self, message):
+        if hasattr(self, "status_label"):
+            self.status_label.setText(message)
+
+    def _populate_lpar_table(self):
+        self.lpar_table.setRowCount(len(self.active_server_configs))
+        for row, (server_name, cfg) in enumerate(sorted(self.active_server_configs.items())):
+            host = cfg.get("host", "") if isinstance(cfg, dict) else str(cfg)
+            db = cfg.get("db", "*LOCAL") if isinstance(cfg, dict) else "*LOCAL"
+            subsystems = EXPECTED_SUBSYSTEMS.get(server_name, [])
+            subsystems_str = ", ".join(subsystems) if isinstance(subsystems, (list, tuple)) else str(subsystems)
+            ports = EXPECTED_PORTS.get(server_name, [])
+            port_parts = []
+            for entry in ports:
+                if isinstance(entry, dict):
+                    port_parts.append(f"{entry.get('port')}:{entry.get('name')}")
+                else:
+                    port_parts.append(str(entry))
+            self.lpar_table.setItem(row, 0, QTableWidgetItem(host))
+            self.lpar_table.setItem(row, 1, QTableWidgetItem(db))
+            self.lpar_table.setItem(row, 2, QTableWidgetItem(subsystems_str))
+            self.lpar_table.setItem(row, 3, QTableWidgetItem(", ".join(port_parts)))
+            daily_name = cfg.get("daily_backup_name", "DAILYSWA") if isinstance(cfg, dict) else "DAILYSWA"
+            journal_name = cfg.get("journal_backup_name", "DAILYSWA") if isinstance(cfg, dict) else "DAILYSWA"
+            self.lpar_table.setItem(row, 4, QTableWidgetItem(str(daily_name or "DAILYSWA")))
+            self.lpar_table.setItem(row, 5, QTableWidgetItem(str(journal_name or "DAILYSWA")))
+
+    def _add_lpar_row(self):
+        row = self.lpar_table.rowCount()
+        self.lpar_table.insertRow(row)
+        self.lpar_table.setItem(row, 0, QTableWidgetItem("192.168.1.1"))
+        self.lpar_table.setItem(row, 1, QTableWidgetItem("*LOCAL"))
+        self.lpar_table.setItem(row, 2, QTableWidgetItem("QINTER, QBATCH, QSYSWRK"))
+        self.lpar_table.setItem(row, 3, QTableWidgetItem("21:FTP, 22:SSH"))
+        self.lpar_table.setItem(row, 4, QTableWidgetItem("DAILYSWA"))
+        self.lpar_table.setItem(row, 5, QTableWidgetItem("DAILYSWA"))
+
+    def _remove_lpar_row(self):
+        row = self.lpar_table.currentRow()
+        if row >= 0:
+            self.lpar_table.removeRow(row)
+
+    def send_test_email(self):
+        smtp_server = self.smtp_server_input.text().strip()
+        username = self.smtp_username_input.text().strip()
+        password = self.smtp_password_input.text() or get_email_password(username)
+        from_address = self.smtp_from_input.text().strip() or username
+        to_addresses = [address.strip() for address in self.smtp_to_input.text().split(",") if address.strip()]
+
+        try:
+            port = int(self.smtp_port_input.text().strip() or 587)
+        except ValueError:
+            QMessageBox.warning(self, "Invalid SMTP Port", "Please enter a valid SMTP port.")
+            return
+
+        if not smtp_server or not to_addresses or "@" not in from_address:
+            QMessageBox.warning(
+                self,
+                "Incomplete SMTP Settings",
+                "Enter an SMTP server, a valid From Address, and at least one recipient.",
+            )
+            return
+        if any("@" not in address for address in to_addresses):
+            QMessageBox.warning(self, "Invalid Recipient", "Please check the recipient email addresses.")
+            return
+
+        self.test_email_btn.setEnabled(False)
+        self.test_email_thread = TestEmailThread(
+            smtp_server=smtp_server,
+            port=port,
+            use_tls=self.smtp_tls_checkbox.isChecked(),
+            username=username,
+            password=password,
+            from_address=from_address,
+            to_addresses=to_addresses,
+        )
+        self.test_email_thread.result_ready.connect(self._handle_test_email_result)
+        self.test_email_thread.start()
+
+    def _handle_test_email_result(self, success, message):
+        self.test_email_btn.setEnabled(True)
+        if success:
+            QMessageBox.information(self, "Test Email", message)
+        else:
+            QMessageBox.critical(self, "Test Email Failed", message)
+
+    def save_settings_page(self):
+        new_configs = {}
+        new_subsystems = {}
+        new_ports = {}
+        for row in range(self.lpar_table.rowCount()):
+            host_item = self.lpar_table.item(row, 0)
+            if not host_item or not host_item.text().strip():
+                continue
+            host = host_item.text().strip()
+            db = self.lpar_table.item(row, 1).text().strip() if self.lpar_table.item(row, 1) else "*LOCAL"
+            subsystems = self.lpar_table.item(row, 2).text().strip() if self.lpar_table.item(row, 2) else ""
+            ports = self.lpar_table.item(row, 3).text().strip() if self.lpar_table.item(row, 3) else ""
+            daily_backup_name = self.lpar_table.item(row, 4).text().strip().upper() if self.lpar_table.item(row, 4) else "DAILYSWA"
+            journal_backup_name = self.lpar_table.item(row, 5).text().strip().upper() if self.lpar_table.item(row, 5) else "DAILYSWA"
+            new_configs[host.upper()] = {
+                "host": host,
+                "db": db,
+                "daily_backup_name": daily_backup_name or "DAILYSWA",
+                "journal_backup_name": journal_backup_name or "DAILYSWA",
+            }
+            new_subsystems[host.upper()] = [s.strip().upper() for s in subsystems.split(",") if s.strip()]
+            parsed_ports = []
+            for part in ports.split(","):
+                item = part.strip()
+                if not item:
+                    continue
+                if ":" in item:
+                    port_num, port_name = item.split(":", 1)
+                    if port_num.strip().isdigit():
+                        parsed_ports.append({"port": int(port_num.strip()), "name": port_name.strip().upper()})
+                elif item.isdigit():
+                    parsed_ports.append({"port": int(item), "name": f"PORT_{item}"})
+            new_ports[host.upper()] = parsed_ports
+
+        try:
+            smtp_port = int(self.smtp_port_input.text().strip() or 587)
+        except ValueError:
+            smtp_port = 587
+        try:
+            threshold_percent = float(self.smtp_threshold_input.text().strip() or 40)
+        except ValueError:
+            threshold_percent = 40
+        try:
+            cooldown_minutes = int(self.smtp_cooldown_input.text().strip() or 10)
+        except ValueError:
+            cooldown_minutes = 10
+        refresh_interval_ms = {
+            "Instantly": 0,
+            "3s": 3000,
+            "5s": 5000,
+            "10s": 10000,
+        }.get(self.refresh_interval_combo.currentText(), 0)
+        log_dedupe_seconds = {
+            "Off": 0,
+            "30s": 30,
+            "1m": 60,
+            "5m": 300,
+        }.get(self.log_dedupe_combo.currentText(), 60)
+        email_alerts = {
+            "enabled": self.smtp_enabled.isChecked(),
+            "smtp_server": self.smtp_server_input.text().strip(),
+            "port": smtp_port,
+            "use_tls": self.smtp_tls_checkbox.isChecked(),
+            "username": self.smtp_username_input.text().strip(),
+            "from_address": self.smtp_from_input.text().strip(),
+            "to_addresses": [address.strip() for address in self.smtp_to_input.text().split(",") if address.strip()],
+            "threshold_percent": threshold_percent,
+            "cooldown_minutes": cooldown_minutes,
+            "refresh_interval_ms": refresh_interval_ms,
+            "log_dedupe_seconds": log_dedupe_seconds,
+        }
+        smtp_password = self.smtp_password_input.text()
+        if smtp_password:
+            email_alerts["password"] = smtp_password
+
+        if not new_configs:
+            self.status_label.setText("Error: Add at least one LPAR before saving.")
+            self.status_label.setStyleSheet("color: #f85149; font-weight: bold; font-size: 11px; background-color: transparent;")
+            return
+
+        remember_credentials = self.remember_creds_checkbox.isChecked()
+        login_username = self.user_input.text().strip()
+        login_password = self.pass_input.text()
+        if remember_credentials and login_username and login_password:
+            save_ibmi_password(login_username, login_password)
+        elif not remember_credentials and login_username:
+            save_ibmi_password(login_username, "")
+        if not save_all_configs(
+            new_configs,
+            new_subsystems,
+            new_ports,
+            email_alerts=email_alerts,
+            login_credentials={"remember": remember_credentials, "username": login_username},
+        ):
+            self.status_label.setText("Error: Save failed. Please try again.")
+            self.status_label.setStyleSheet("color: #f85149; font-weight: bold; font-size: 11px; background-color: transparent;")
+            return
+
+        self.active_server_configs.clear()
+        self.active_server_configs.update(new_configs)
+        self.backup_management_widget.server_configs = self.active_server_configs
+        SERVER_CONFIGS.clear(); SERVER_CONFIGS.update(new_configs)
+        EXPECTED_SUBSYSTEMS.clear(); EXPECTED_SUBSYSTEMS.update(new_subsystems)
+        EXPECTED_PORTS.clear(); EXPECTED_PORTS.update(new_ports)
+        self.rebuild_server_cards()
+        self.status_label.setText("Status: Settings saved and applied.")
+        self.status_label.setStyleSheet("color: #2ea043; font-weight: bold; font-size: 11px; background-color: transparent;")
+        QMessageBox.information(self, "Settings Applied", "Settings were saved and applied successfully.")
+
+    def _update_start_controls_state(self):
+        enabled = self.credentials_validated and bool(self.active_server_configs)
+        if hasattr(self, "top_start_btn"):
+            self.top_start_btn.setEnabled(enabled)
+            if self.is_monitoring:
+                self.top_start_btn.setStyleSheet(
+                    "QPushButton {"
+                    "  background-color: #21262d;"
+                    "  color: #f85149;"
+                    "  border: 1px solid #30363d;"
+                    "  font-weight: bold;"
+                    "  padding: 5px 8px;"
+                    "  border-radius: 6px;"
+                    "  opacity: 1;"
+                    "}"
+                    "QPushButton:hover {"
+                    "  background-color: #361718;"
+                    "  border-color: #f85149;"
+                    "}"
+                    "QPushButton:disabled {"
+                    "  background-color: #6b7280;"
+                    "  color: #e5e7eb;"
+                    "  border: 1px solid #6b7280;"
+                    "  opacity: 0.7;"
+                    "}"
+                    "QPushButton:disabled:hover {"
+                    "  background-color: #6b7280;"
+                    "  border-color: #6b7280;"
+                    "}"
+                )
+            else:
+                self.top_start_btn.setStyleSheet(
+                    "QPushButton {"
+                    "  background-color: #238636;"
+                    "  color: #ffffff;"
+                    "  border: 1px solid #2ea043;"
+                    "  border-radius: 6px;"
+                    "  font-weight: bold;"
+                    "  font-size: 8pt;"
+                    "  padding: 5px 8px;"
+                    "  opacity: 1;"
+                    "}"
+                    "QPushButton:hover {"
+                    "  background-color: #2ea043;"
+                    "}"
+                    "QPushButton:disabled {"
+                    "  background-color: #6b7280;"
+                    "  color: #e5e7eb;"
+                    "  border: 1px solid #6b7280;"
+                    "  opacity: 0.7;"
+                    "}"
+                    "QPushButton:disabled:hover {"
+                    "  background-color: #6b7280;"
+                    "  border-color: #6b7280;"
+                    "}"
+                )
+
+    def validate_login_credentials(self):
+        self.toggle_btn.setEnabled(False)
+        self.toggle_btn.setText("Checking...")
+        self.status_label.setText("Status: Checking credentials...")
+        self.status_label.setStyleSheet("color: #8b949e; font-size: 11px; background-color: transparent;")
+
+        username = self.user_input.text().strip()
+        password = self.pass_input.text().strip()
+
+        if not username or not password:
+            self.toggle_btn.setEnabled(True)
+            self.toggle_btn.setText("Check Login Creds")
+            self.status_label.setText("Error: Please enter both Username and Password.")
+            self.status_label.setStyleSheet("color: #f85149; font-weight: bold; font-size: 11px; background-color: transparent;")
+            return {}
+
+        if not self.active_server_configs:
+            self.toggle_btn.setEnabled(True)
+            self.toggle_btn.setText("Check Login Creds")
+            self.status_label.setText("Error: Configure at least one LPAR before validating credentials.")
+            self.status_label.setStyleSheet("color: #f85149; font-weight: bold; font-size: 11px; background-color: transparent;")
+            return {}
+
+        self.credentials_validated = False
+        self._credential_check_results = {}
+        self.credential_check_thread = CredentialCheckThread(
+            self.active_server_configs,
+            username,
+            password,
+        )
+        event_loop = QEventLoop()
+        self.credential_check_thread.results_ready.connect(self._handle_credential_check_results)
+        self.credential_check_thread.finished.connect(event_loop.quit)
+        self.credential_check_thread.start()
+        event_loop.exec()
+        self.credential_check_thread.deleteLater()
+        return self._credential_check_results
+
+    def _handle_credential_check_results(self, results):
+        self._credential_check_results = results
+        ok_servers = []
+        auth_error_servers = []
+        log_lines = ["Credential validation log:"]
+        for server_name, result in results.items():
+            if result.get("status") == "OK":
+                ok_servers.append(server_name)
+                log_lines.append(f"[{server_name}] OK - Credentials accepted.")
+            else:
+                auth_error_servers.append(server_name)
+                log_lines.append(f"[{server_name}] AUTH_ERROR - {result.get('message', '')}")
+
+        self.cred_log.setPlainText("\n".join(log_lines))
+
+        if ok_servers and not auth_error_servers:
+            details = ", ".join(ok_servers)
+            self.credentials_validated = True
+            self.status_label.setText(f"Login check passed for: {details}.")
+            self.status_label.setStyleSheet("color: #2ea043; font-weight: bold; font-size: 11px; background-color: transparent;")
+        elif auth_error_servers and not ok_servers:
+            details = ", ".join(auth_error_servers)
+            self.credentials_validated = False
+            self.status_label.setText(f"Authentication failed for: {details}. Check credentials or user profile.")
+            self.status_label.setStyleSheet("color: #f85149; font-weight: bold; font-size: 11px; background-color: transparent;")
+        else:
+            ok_details = ", ".join(ok_servers)
+            auth_details = ", ".join(auth_error_servers)
+            self.credentials_validated = bool(ok_servers)
+            self.status_label.setText(
+                f"Login check results: OK on {ok_details}; Authentication failed on {auth_details}."
+            )
+            self.status_label.setStyleSheet("color: #e3b341; font-weight: bold; font-size: 11px; background-color: transparent;")
+
+        self._update_start_controls_state()
+        self.toggle_btn.setEnabled(True)
+        self.toggle_btn.setText("Check Login Creds")
+        if self.credentials_validated:
+            self.backup_management_widget.start_hourly_refresh()
 
     def _show_sync_loading(self, message="Syncing data..."):
         self.status_label.setText(f"Status: {message}")
@@ -1222,45 +2071,51 @@ class IBMiDashboard(QMainWindow):
 
     def apply_theme_state(self):
         title_color = "#ffffff" if self.is_dark_theme else "#1f2328"
-        self.cards_title.setStyleSheet(f"color: {title_color}; background-color: transparent;")
-        self.header_title.setStyleSheet(f"color: {title_color}; background-color: transparent;")
+        if hasattr(self, "cards_title"):
+            self.cards_title.setStyleSheet(f"color: {title_color}; background-color: transparent;")
+        if hasattr(self, "header_title"):
+            self.header_title.setStyleSheet(f"color: {title_color}; background-color: transparent;")
         self.global_alerts.set_theme(self.is_dark_theme)
         self.refresh_widget.set_theme(self.is_dark_theme)
-        self.log_viewer_widget.set_theme(self.is_dark_theme)
+        if hasattr(self, "log_viewer_widget"):
+            self.log_viewer_widget.set_theme(self.is_dark_theme)
         if hasattr(self, 'monthly_report_widget'):
             self.monthly_report_widget.set_theme(self.is_dark_theme)
-        self.theme_btn.setText("☀ Light Theme" if self.is_dark_theme else "🌙 Dark Theme")
-        self.info_btn.setStyleSheet(
-            "QPushButton {"
-            "  background-color: transparent;"
-            "  color: #f0f6fc;"
-            "  border: 1px solid #30363d;"
-            "  border-radius: 8px;"
-            "  font-size: 17px;"
-            "  font-weight: bold;"
-            "  padding: 0;"
-            "}"
-            "QPushButton:hover {"
-            "  background-color: #21262d;"
-            "  border-color: #58a6ff;"
-            "}"
-            if self.is_dark_theme else
-            "QPushButton {"
-            "  background-color: transparent;"
-            "  color: #1f2328;"
-            "  border: 1px solid #d0d7de;"
-            "  border-radius: 8px;"
-            "  font-size: 17px;"
-            "  font-weight: bold;"
-            "  padding: 0;"
-            "}"
-            "QPushButton:hover {"
-            "  background-color: #f3f4f6;"
-            "  border-color: #0969da;"
-            "}"
-        )
-        self.info_btn.setText("🛈")
-        self.update_toggle_button_style()
+        if hasattr(self, "theme_btn"):
+            self.theme_btn.setText("☀ Light Theme" if self.is_dark_theme else "🌙 Dark Theme")
+            self.info_btn.setStyleSheet(
+                "QPushButton {"
+                "  background-color: transparent;"
+                "  color: #f0f6fc;"
+                "  border: 1px solid #30363d;"
+                "  border-radius: 8px;"
+                "  font-size: 17px;"
+                "  font-weight: bold;"
+                "  padding: 0;"
+                "}"
+                "QPushButton:hover {"
+                "  background-color: #21262d;"
+                "  border-color: #58a6ff;"
+                "}"
+                if self.is_dark_theme else
+                "QPushButton {"
+                "  background-color: transparent;"
+                "  color: #1f2328;"
+                "  border: 1px solid #d0d7de;"
+                "  border-radius: 8px;"
+                "  font-size: 17px;"
+                "  font-weight: bold;"
+                "  padding: 0;"
+                "}"
+                "QPushButton:hover {"
+                "  background-color: #f3f4f6;"
+                "  border-color: #0969da;"
+                "}"
+            )
+            self.info_btn.setText("🛈")
+            self.update_toggle_button_style()
+        if hasattr(self, "nav_buttons"):
+            self._update_nav_button_styles(self._current_nav_key())
 
     def init_live_monitor_ui(self):
         main_layout = QVBoxLayout(self.live_monitor_widget)
@@ -1273,46 +2128,6 @@ class IBMiDashboard(QMainWindow):
 
         top_bar_layout = QHBoxLayout()
         top_bar_layout.setSpacing(10)
-
-        cred_group = QGroupBox("IBM i Access Credentials")
-        cred_layout = QHBoxLayout(cred_group)
-        cred_layout.setContentsMargins(10, 4, 10, 4)
-        cred_layout.setSpacing(6)
-
-        lbl_user = QLabel("Username:")
-        lbl_user.setStyleSheet("background-color: transparent;")
-        cred_layout.addWidget(lbl_user)
-
-        self.user_input = QLineEdit("")
-        self.user_input.setPlaceholderText("Username")
-        self.user_input.setFont(QFont("Segoe UI", 9))
-        self.user_input.setFixedWidth(100)
-        cred_layout.addWidget(self.user_input)
-
-        lbl_pass = QLabel("Password:")
-        lbl_pass.setStyleSheet("background-color: transparent;")
-        cred_layout.addWidget(lbl_pass)
-
-        self.pass_input = QLineEdit("")
-        self.pass_input.setPlaceholderText("Password")
-        self.pass_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.pass_input.setFont(QFont("Segoe UI", 9))
-        self.pass_input.setFixedWidth(100)
-        cred_layout.addWidget(self.pass_input)
-
-        self.toggle_btn = QPushButton("Start Auto-Refresh")
-        self.toggle_btn.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        self.toggle_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.toggle_btn.clicked.connect(self.toggle_monitoring)
-        cred_layout.addWidget(self.toggle_btn)
-
-        self.settings_btn = QPushButton("⚙️ Settings")
-        self.settings_btn.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        self.settings_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.settings_btn.clicked.connect(self.open_lpar_settings)
-        cred_layout.addWidget(self.settings_btn)
-
-        top_bar_layout.addWidget(cred_group, stretch=0)
 
         self.global_alerts = GlobalAlertsWidget()
         self.global_alerts.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -1327,12 +2142,26 @@ class IBMiDashboard(QMainWindow):
         self.retry_status_label.setVisible(False)
         main_layout.addWidget(self.retry_status_label)
 
-        self.theme_btn = QPushButton("☀ Light Theme")
-        self.theme_btn.setFixedHeight(35)
-        self.theme_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.theme_btn.setToolTip("Switch between dark and light themes")
-        self.theme_btn.clicked.connect(self.toggle_theme)
-        top_bar_layout.addWidget(self.theme_btn, stretch=0, alignment=Qt.AlignmentFlag.AlignVCenter)
+        self.top_start_btn = QPushButton("Start Auto-Refresh")
+        self.top_start_btn.setFixedHeight(35)
+        self.top_start_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.top_start_btn.setToolTip("Start or stop automated refresh")
+        self.top_start_btn.clicked.connect(self.toggle_monitoring)
+        self.top_start_btn.setStyleSheet(
+            "QPushButton {"
+            "  background-color: #238636;"
+            "  color: #ffffff;"
+            "  border: 1px solid #2ea043;"
+            "  border-radius: 8px;"
+            "  font-size: 11px;"
+            "  font-weight: bold;"
+            "  padding: 0 12px;"
+            "}"
+            "QPushButton:hover {"
+            "  background-color: #2ea043;"
+            "}"
+        )
+        top_bar_layout.addWidget(self.top_start_btn, stretch=0, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         self.info_btn = QPushButton("🛈")
         self.info_btn.setFixedSize(36, 35)
@@ -1358,7 +2187,7 @@ class IBMiDashboard(QMainWindow):
 
         main_layout.addLayout(top_bar_layout)
 
-        self.status_label = QLabel("Status: Idle. Enter credentials and click 'Start Auto-Refresh'.")
+        self.status_label = QLabel("Status: Idle. Enter credentials and click 'Check Login Creds'.")
         self.status_label.setStyleSheet("color: #8b949e; font-size: 11px; background-color: transparent;")
         main_layout.addWidget(self.status_label)
 
@@ -1686,52 +2515,88 @@ class IBMiDashboard(QMainWindow):
         dialog.exec()
 
     def update_toggle_button_style(self):
-        if self.is_monitoring:
-            if self.is_dark_theme:
-                self.toggle_btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: #21262d; 
-                        color: #f85149;
-                        border: 1px solid #30363d; 
-                        font-weight: bold; 
-                        padding: 5px 8px;
-                        border-radius: 6px;
-                    }
-                    QPushButton:hover { 
-                        background-color: #361718; 
-                        border-color: #f85149; 
-                    }
-                """)
+        self._update_start_controls_state()
+
+        if hasattr(self, "top_start_btn"):
+            button = self.top_start_btn
+            if self.is_monitoring:
+                if self.is_dark_theme:
+                    button.setStyleSheet("""
+                        QPushButton {
+                            background-color: #21262d; 
+                            color: #f85149;
+                            border: 1px solid #30363d; 
+                            font-weight: bold; 
+                            padding: 5px 8px;
+                            border-radius: 6px;
+                        }
+                        QPushButton:hover { 
+                            background-color: #361718; 
+                            border-color: #f85149; 
+                        }
+                        QPushButton:disabled {
+                            background-color: #6b7280;
+                            color: #e5e7eb;
+                            border: 1px solid #6b7280;
+                            opacity: 0.7;
+                        }
+                        QPushButton:disabled:hover {
+                            background-color: #6b7280;
+                            border-color: #6b7280;
+                        }
+                    """)
+                else:
+                    button.setStyleSheet("""
+                        QPushButton {
+                            background-color: #c2410c; 
+                            color: #ffffff;
+                            border: 1px solid #9a3412; 
+                            font-weight: bold; 
+                            padding: 5px 8px;
+                            border-radius: 6px;
+                        }
+                        QPushButton:hover { 
+                            background-color: #ea580c; 
+                            border-color: #c2410c; 
+                        }
+                        QPushButton:disabled {
+                            background-color: #6b7280;
+                            color: #e5e7eb;
+                            border: 1px solid #6b7280;
+                            opacity: 0.7;
+                        }
+                        QPushButton:disabled:hover {
+                            background-color: #6b7280;
+                            border-color: #6b7280;
+                        }
+                    """)
             else:
-                self.toggle_btn.setStyleSheet("""
+                button.setStyleSheet("""
                     QPushButton {
-                        background-color: #c2410c; 
+                        background-color: #238636; 
                         color: #ffffff;
-                        border: 1px solid #9a3412; 
+                        border: 1px solid #2ea043; 
                         font-weight: bold; 
+                        font-size: 8pt;
                         padding: 5px 8px;
                         border-radius: 6px;
                     }
                     QPushButton:hover { 
-                        background-color: #ea580c; 
-                        border-color: #c2410c; 
+                        background-color: #2ea043; 
+                    }
+                    QPushButton:disabled {
+                        background-color: #6b7280;
+                        color: #e5e7eb;
+                        border: 1px solid #6b7280;
+                        opacity: 0.7;
+                    }
+                    QPushButton:disabled:hover {
+                        background-color: #6b7280;
+                        border-color: #6b7280;
                     }
                 """)
-        else:
-            self.toggle_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #238636; 
-                    color: #ffffff;
-                    border: 1px solid #2ea043; 
-                    font-weight: bold; 
-                    font-size: 8pt;
-                    padding: 5px 8px;
-                    border-radius: 6px;
-                }
-                QPushButton:hover { 
-                    background-color: #2ea043; 
-                }
-            """)
+
+            self.top_start_btn.setText("Stop Auto-Refresh" if self.is_monitoring else "Start Auto-Refresh")
 
     def open_lpar_settings(self):
         dialog = LparSettingsDialog(self.active_server_configs, self)
@@ -1809,7 +2674,6 @@ class IBMiDashboard(QMainWindow):
         self.settings_btn.setEnabled(False)
         self.retry_status_label.setVisible(False)
         
-        self.toggle_btn.setText("Stop Auto-Refresh")
         self.update_toggle_button_style()
 
         for card in self.card_widgets.values():
@@ -1846,7 +2710,6 @@ class IBMiDashboard(QMainWindow):
         self.pass_input.setEnabled(True)
         self.settings_btn.setEnabled(True)
         
-        self.toggle_btn.setText("Start Auto-Refresh")
         self.update_toggle_button_style()
         self._hide_sync_loading()
 
@@ -2078,7 +2941,7 @@ class IBMiDashboard(QMainWindow):
 
         now = time.monotonic()
         should_refresh_history = (
-            self.tabs.currentWidget() is self.log_viewer_widget
+            self.content_stack.currentWidget() is self.log_viewer_widget
             or (now - self.last_log_history_refresh) >= 30.0
         )
         if should_refresh_history:

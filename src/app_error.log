@@ -2818,3 +2818,852 @@ Traceback (most recent call last):
     previous_month = now.replace(day=1) - timedelta(days=1)
                      ^^^^^^^^^^^
 AttributeError: 'bool' object has no attribute 'replace'
+
+Fatal startup crash: name 'QPixmap' is not defined
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\main.py", line 73, in main
+    window = ui.main_window.IBMiDashboard()
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1197, in __init__
+    QPixmap(resource_path("logo.png")).scaled(
+    ^^^^^^^
+NameError: name 'QPixmap' is not defined
+
+Fatal startup crash: name 'QPixmap' is not defined
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\main.py", line 73, in main
+    window = ui.main_window.IBMiDashboard()
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1197, in __init__
+    QPixmap(resource_path("logo.png")).scaled(
+    ^^^^^^^
+NameError: name 'QPixmap' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 2033, in _handle_credential_check_results
+    self.backup_management_widget.start_hourly_refresh()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 251, in start_hourly_refresh
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1271, in <lambda>
+    btn.clicked.connect(lambda checked, page_key=key: self.set_current_page(page_key))
+                                                      ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1369, in set_current_page
+    self.backup_management_widget.start_hourly_refresh()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 251, in start_hourly_refresh
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 170, in fetch_all_backup_data
+    self.fetch_backup_data("journal")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 182, in fetch_backup_data
+    job_name = self._job_name_for(backup_type)
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 117, in _job_name_for
+    val = config.get(key)
+                     ^^^
+UnboundLocalError: cannot access local variable 'key' where it is not associated with a value
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 2033, in _handle_credential_check_results
+    self.backup_management_widget.start_hourly_refresh()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 267, in start_hourly_refresh
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1271, in <lambda>
+    btn.clicked.connect(lambda checked, page_key=key: self.set_current_page(page_key))
+                                                      ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1369, in set_current_page
+    self.backup_management_widget.start_hourly_refresh()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 267, in start_hourly_refresh
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1271, in <lambda>
+    btn.clicked.connect(lambda checked, page_key=key: self.set_current_page(page_key))
+                                                      ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\main_window.py", line 1369, in set_current_page
+    self.backup_management_widget.start_hourly_refresh()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 267, in start_hourly_refresh
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 51, in <lambda>
+    button.clicked.connect(lambda checked, name=server_name: self.select_server(name))
+                                                             ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 105, in select_server
+    self.fetch_all_backup_data()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 181, in fetch_all_backup_data
+    self.fetch_backup_data("daily")
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\WinMacOS\src\ui\backup_manage.py", line 199, in fetch_backup_data
+    thread.data_ready.connect(
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'DailyBackupFetchThread' object has no attribute 'data_ready'

@@ -1,5 +1,5 @@
 #define AppName "AS400 Quantum Suite"
-#define AppVersion "4.1.0"
+#define AppVersion "5.0.0"
 #define AppPublisher "emxts-hub"
 #define AppExeName "AS400QuantumSuite.exe"
 #define AppBundleName "AS400QuantumSuite"

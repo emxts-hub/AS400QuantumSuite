@@ -12,7 +12,7 @@ import queue
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 import pyodbc
-from PyQt6.QtCore import QRunnable, QObject, pyqtSignal
+from PyQt6.QtCore import QRunnable, QObject, QThread, pyqtSignal
 from config import (
     SERVER_CONFIGS, 
     MONITORED_PORTS, 
@@ -34,11 +34,88 @@ _ALERT_STATE_LOCK = threading.Lock()
 _LAST_ASP_ALERT_STATE = {}
 _LAST_ASP_SOUND_STATE = {"armed": False, "sent_at": 0.0}
 _LAST_ASP_EMAIL_STATE = {}
+_LAST_SERVER_STATUS = {}
 _ALERT_SOUND_STOP_EVENT = threading.Event()
 _ALERT_SOUND_PROCESSES = set()
 _ALERT_SOUND_PROCESS_LOCK = threading.Lock()
 _ALERT_SOUND_LOCK = threading.Lock()
 _ALERT_SOUND_THREAD = None
+
+
+class DailyBackupFetchThread(QThread):
+    host_name_ready = pyqtSignal(str, str)
+    data_ready = pyqtSignal(str, list)
+    error = pyqtSignal(str, str)
+
+    HOST_NAME_QUERY = """
+        SELECT SUBSTR(
+            HOST_NAME,
+            GREATEST(LOCATE('JDAD', HOST_NAME), LOCATE('JDAP', HOST_NAME)),
+            6
+        ) AS HOST_NAME
+        FROM SYSIBMADM.ENV_SYS_INFO
+    """
+
+    QUERY = """
+    SELECT JOB_NAME,
+           JOB_ACTIVE_TIME AS START_TIME,
+           JOB_END_TIME AS END_TIME,
+           JOB_END_SEVERITY,
+           CASE
+               WHEN JOB_END_TIME IS NULL THEN 'RUNNING'
+               WHEN JOB_END_SEVERITY > 30 THEN 'FAILED / ABNORMAL'
+               WHEN JOB_END_SEVERITY BETWEEN 10 AND 30 THEN 'COMPLETED WITH WARNINGS'
+               ELSE 'COMPLETED'
+           END AS BACKUP_STATUS
+    FROM TABLE(
+            QSYS2.JOB_INFO(
+                JOB_USER_FILTER => '*ALL',
+                JOB_STATUS_FILTER => '*ALL',
+                JOB_NAME_FILTER => ?
+            )
+        ) AS J
+        ORDER BY JOB_ENTERED_SYSTEM_TIME DESC
+        FETCH FIRST 1 ROW ONLY
+"""
+
+    def __init__(self, server_name, host, db, username, password, job_name_short):
+        super().__init__()
+        self.server_name = server_name
+        self.host = host
+        self.db = db
+        self.username = username
+        self.password = password
+        self.job_name_short = job_name_short
+
+    def run(self):
+        conn = None
+        try:
+            conn = _new_connection(self.host, self.db, self.username, self.password)
+            cursor = conn.cursor()
+            try:
+                cursor.execute(self.HOST_NAME_QUERY)
+                host_row = cursor.fetchone()
+                if host_row and host_row[0] is not None:
+                    host_name = str(host_row[0]).strip()
+                    if host_name:
+                        self.host_name_ready.emit(self.server_name, host_name)
+            except Exception:
+                pass
+            
+            # Pass a tuple containing only one parameter:
+            cursor.execute(self.QUERY, (self.job_name_short,))
+            
+            columns = [column[0].lower() for column in cursor.description]
+            records = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            self.data_ready.emit(self.server_name, records)
+        except Exception as exc:
+            self.error.emit(self.server_name, str(exc))
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
 
 def _logger_worker():
@@ -142,6 +219,46 @@ def _repair_wav_file_if_needed(wav_path):
         fixed[data_idx + 4:data_idx + 8] = struct.pack("<I", data_size)
         with open(wav_path, "wb") as f:
             f.write(fixed)
+        return True
+    except Exception:
+        return False
+
+
+def _find_sound_path(name):
+    candidate_paths = [
+        get_resource_path(f"src/{name}"),
+        get_resource_path(name),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), name),
+        os.path.join(os.getcwd(), "src", name),
+    ]
+
+    for path in candidate_paths:
+        if path and os.path.exists(path):
+            return path
+
+    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    for root, _, files in os.walk(base_dir):
+        if name.lower() in [filename.lower() for filename in files]:
+            return os.path.join(root, name)
+    return None
+
+
+def play_alert_sound(name):
+    """Play one alert sound without changing the looping ASP alert state."""
+    sound_path = _find_sound_path(name)
+    if not sound_path:
+        print(f"Alert sound not found: {name}")
+        return False
+
+    try:
+        _repair_wav_file_if_needed(sound_path)
+        if sys.platform == "win32":
+            import winsound
+            winsound.PlaySound(str(sound_path), winsound.SND_FILENAME | winsound.SND_NODEFAULT)
+        elif sys.platform == "darwin":
+            subprocess.run(["afplay", str(sound_path)], check=False, timeout=30)
+        else:
+            subprocess.run(["ffplay", "-nodisp", "-autoexit", str(sound_path)], check=False, timeout=30)
         return True
     except Exception:
         return False
@@ -357,6 +474,67 @@ def send_asp_alert(server_name, asp_value, threshold_percent):
         return True
     except Exception:
         return False
+
+
+def send_server_status_alert(server_name, status, error=""):
+    """Send an SMTP alert when a monitored server becomes unreachable."""
+    alert_cfg = load_email_alerts()
+    if not alert_cfg.get("enabled"):
+        return False
+
+    smtp_server = str(alert_cfg.get("smtp_server", "")).strip()
+    recipients = _normalize_recipients(alert_cfg.get("to_addresses", []))
+    if not smtp_server or not recipients:
+        return False
+
+    username = str(alert_cfg.get("username", "")).strip()
+    password = str(alert_cfg.get("password", "")).strip()
+    from_address = str(alert_cfg.get("from_address", "")).strip() or username or "alerts@localhost"
+    port = int(alert_cfg.get("port", 587) or 587)
+    use_tls = bool(alert_cfg.get("use_tls", True))
+
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = f"Server Down Alert - {server_name}"
+        msg["From"] = from_address
+        msg["To"] = ", ".join(recipients)
+        details = f"\nConnection error: {error}" if error else ""
+        msg.set_content(
+            f"The monitored server {server_name} is down or not reachable.\n"
+            f"Status: {status}{details}\n\n"
+            f"This notification was generated automatically by the IBM i dashboard."
+        )
+
+        with smtplib.SMTP(smtp_server, port, timeout=15) as smtp:
+            if use_tls:
+                smtp.starttls()
+            if username and password:
+                smtp.login(username, password)
+            smtp.send_message(msg)
+        return True
+    except Exception:
+        return False
+
+
+def maybe_send_server_status_alert(result):
+    """Alert once when a server goes offline and play up.wav on recovery."""
+    server_name = str(result.get("server") or result.get("config_key") or "Unknown server")
+    status = str(result.get("status", "OFFLINE")).upper()
+    is_down = status == "OFFLINE"
+    is_up = status in {"ONLINE", "DEGRADED"}
+
+    with _ALERT_STATE_LOCK:
+        previous_status = _LAST_SERVER_STATUS.get(server_name)
+        _LAST_SERVER_STATUS[server_name] = status
+
+    if is_down and previous_status != "OFFLINE":
+        play_alert_sound("alert.wav")
+        return send_server_status_alert(server_name, status, str(result.get("error", "")))
+
+    if is_up and previous_status == "OFFLINE":
+        return play_alert_sound("up.wav")
+
+    return False
 
 
 def maybe_send_asp_alert(server_name, asp_value):
@@ -902,6 +1080,7 @@ class SingleLparRunnable(QRunnable):
                 pass
 
             active_jobs = 0
+            active_jobs_detail = []
             asp_used = 0.0
             cpu_util = 0.0
             metric_errors = []
@@ -928,6 +1107,28 @@ class SingleLparRunnable(QRunnable):
                         cpu_util = float(combined_row[2])
             except Exception as e:
                 metric_errors.append(f"jobs/ASP/CPU: {e}")
+
+            try:
+                cursor.execute(
+                    """
+                    SELECT
+                        JOB_NAME,
+                        JOB_STATUS,
+                        TEMPORARY_STORAGE,
+                        CPU_TIME
+                    FROM TABLE(QSYS2.ACTIVE_JOB_INFO(DETAILED_INFO => 'NONE'))
+                    """
+                )
+                for row in cursor.fetchall():
+                    active_jobs_detail.append({
+                        "job_name": str(row[0]).strip() if row[0] is not None else "",
+                        "job_status": str(row[1]).strip() if row[1] is not None else "",
+                        "temporary_storage": row[2] if row[2] is not None else 0,
+                        "cpu_time": row[3] if row[3] is not None else 0,
+                    })
+                active_jobs = len(active_jobs_detail)
+            except Exception as e:
+                metric_errors.append(f"active job details: {e}")
 
             if self.check_cancelled():
                 return
@@ -1052,6 +1253,7 @@ class SingleLparRunnable(QRunnable):
                 "cpu": cpu_util,
                 "asp": asp_used,
                 "jobs": active_jobs,
+                "active_jobs_detail": active_jobs_detail,
                 "subsystems": active_subsystems,
                 "ports": port_status_list,
             }
@@ -1070,6 +1272,7 @@ class SingleLparRunnable(QRunnable):
                     "cpu": 0.0,
                     "asp": 0.0,
                     "jobs": 0,
+                    "active_jobs_detail": [],
                     "subsystems": [],
                     "ports": [],
                 }
@@ -1083,6 +1286,7 @@ class SingleLparRunnable(QRunnable):
                     "cpu": 0.0,
                     "asp": 0.0,
                     "jobs": 0,
+                    "active_jobs_detail": [],
                     "subsystems": [],
                     "ports": [],
                 }
@@ -1096,6 +1300,10 @@ class SingleLparRunnable(QRunnable):
         if not self.is_cancelled():
             result["sync_duration_ms"] = max(0, int((time.monotonic() - started_at) * 1000))
             result["completed_at"] = time.strftime("%H:%M:%S")
+            try:
+                maybe_send_server_status_alert(result)
+            except Exception:
+                pass
             try:
                 maybe_send_asp_alert(str(result.get("server") or self.server), float(result.get("asp", 0.0) or 0.0))
             except Exception:

@@ -3,13 +3,14 @@ import re
 import sys
 import smtplib
 import webbrowser
-from typing import Optional
+from typing import Optional, cast
 from email.message import EmailMessage
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QTextEdit, QComboBox,
     QTableWidget, QTableWidgetItem, QHeaderView,
+    QAbstractItemView,
     QApplication, QMessageBox, QGroupBox, QCheckBox,
     QWidget, QTabWidget
 )
@@ -21,6 +22,108 @@ from config import (
     save_all_configs,
     load_email_alerts,
 )
+
+
+class ActiveJobTableItem(QTableWidgetItem):
+    def __init__(self, text, sort_value=None):
+        super().__init__(text)
+        self.sort_value = sort_value
+
+    def __lt__(self, other):
+        if isinstance(other, ActiveJobTableItem):
+            if isinstance(self.sort_value, (int, float)) and isinstance(other.sort_value, (int, float)):
+                return self.sort_value < other.sort_value
+        return super().__lt__(other)
+
+
+class ActiveJobsDialog(QDialog):
+    COLUMNS = [
+        ("Job Number / Job User / Job Name", "job_name"),
+        ("JOB_STATUS", "job_status"),
+        ("TEMPORARY_STORAGE", "temporary_storage"),
+        ("CPU_TIME", "cpu_time"),
+    ]
+
+    def __init__(self, server_name, jobs=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"{server_name} - Active Jobs")
+        self.resize(790, 560)
+        app = QApplication.instance()
+        is_dark = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
+        dialog_bg = "#0d1117" if is_dark else "#f6f8fa"
+        surface = "#161b22" if is_dark else "#ffffff"
+        header_bg = "#21262d" if is_dark else "#eaeef2"
+        text = "#c9d1d9" if is_dark else "#1f2328"
+        muted = "#8b949e" if is_dark else "#57606a"
+        border = "#30363d" if is_dark else "#d0d7de"
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {dialog_bg}; color: {text}; }}
+            QLineEdit {{ background-color: {surface}; color: {text}; border: 1px solid {border}; padding: 6px 10px; }}
+            QTableWidget {{ background-color: {surface}; color: {text}; gridline-color: {border}; border: 1px solid {border}; }}
+            QTableWidget::item {{ color: {text}; padding: 6px; }}
+            QTableWidget::item:selected {{ background-color: #1f6feb; color: #ffffff; }}
+            QHeaderView::section {{ background-color: {header_bg}; color: {muted}; padding: 8px; border: none; border-bottom: 1px solid {border}; }}
+        """)
+        layout = QVBoxLayout(self)
+
+        search_layout = QHBoxLayout()
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search active jobs")
+        self.search_button = QPushButton("Search")
+        self.search_button.clicked.connect(self._apply_search)
+        self.search_input.returnPressed.connect(self._apply_search)
+        search_layout.addWidget(self.search_input)
+        search_layout.addWidget(self.search_button)
+        layout.addLayout(search_layout)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(len(self.COLUMNS))
+        self.table.setHorizontalHeaderLabels([label for label, _ in self.COLUMNS])
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setWordWrap(False)
+        self.table.setAlternatingRowColors(True)
+        cast(QHeaderView, self.table.verticalHeader()).setVisible(False)
+        self.table.setSortingEnabled(True)
+        header = cast(QHeaderView, self.table.horizontalHeader())
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        for column, width in enumerate((250, 150, 200, 150)):
+            self.table.setColumnWidth(column, width)
+        header.setStretchLastSection(True)
+        layout.addWidget(self.table)
+        self._jobs = []
+        self.update_jobs(jobs or [])
+
+    def update_jobs(self, jobs):
+        self._jobs = [job for job in jobs if isinstance(job, dict)]
+        self.setWindowTitle(f"{self.windowTitle().split(' - ')[0]} - {len(self._jobs):,} Active Jobs")
+        self._apply_search()
+
+    def _apply_search(self):
+        search_text = self.search_input.text().strip().lower()
+        rows = [
+            job for job in self._jobs
+            if not search_text or search_text in " ".join(
+                str(job.get(key, "")) for _, key in self.COLUMNS
+            ).lower()
+        ]
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(len(rows))
+        for row_index, job in enumerate(rows):
+            for column_index, (_, key) in enumerate(self.COLUMNS):
+                value = job.get(key, "")
+                sort_value = None
+                if key in {"temporary_storage", "cpu_time"}:
+                    try:
+                        sort_value = float(value)
+                    except (TypeError, ValueError):
+                        pass
+                self.table.setItem(
+                    row_index,
+                    column_index,
+                    ActiveJobTableItem(str(value), sort_value),
+                )
+        self.table.setSortingEnabled(True)
 
 
 class TestEmailThread(QThread):

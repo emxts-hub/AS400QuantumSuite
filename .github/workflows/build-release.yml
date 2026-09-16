@@ -29,7 +29,7 @@ jobs:
         shell: powershell
         run: |
           if (Test-Path "dist") { Remove-Item -Recurse -Force "dist" }
-          pyinstaller --noconsole --onedir --noupx --clean --name "AS400QuantumSuite" --paths=src --add-data "src/warning.wav;src" --add-data "src/logo.png;src" --icon=src/logo.ico --collect-all PyQt6 src/main.py
+          pyinstaller --noconsole --onedir --noupx --clean --name "AS400QuantumSuite" --paths=src --add-data "src/warning.wav;src" --add-data "src/alert.wav;src" --add-data "src/up.wav;src" --add-data "src/logo.png;src" --icon=src/logo.ico --collect-all PyQt6 src/main.py
 
       - name: Sign PyInstaller Output Binaries
         shell: powershell

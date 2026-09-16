@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 
 APP_NAME = "AS400 Quantum Suite"
-APP_VERSION = "4.1.0"
+APP_VERSION = "5.0.0"
 USER_PROFILE = os.environ.get("USERPROFILE") or os.path.expanduser("~")
 ONEDRIVE_SHAREPOINT_PATH = os.path.join(
     USER_PROFILE,
@@ -242,6 +242,7 @@ except Exception:
     _KEYRING_AVAILABLE = False
 
 _EMAIL_SERVICE_NAME = f"{APP_NAME}_smtp"
+_IBMI_SERVICE_NAME = f"{APP_NAME}_ibmi"
 
 
 def save_email_password(username, password):
@@ -281,6 +282,44 @@ def get_email_password(username):
             pass
 
     return ""
+
+
+def save_ibmi_password(username, password):
+    """Store the IBM i login password securely in the OS keyring."""
+    if not username or not (_KEYRING_AVAILABLE and keyring is not None):
+        return False
+    try:
+        keyring.set_password(_IBMI_SERVICE_NAME, username, password or "")
+        return True
+    except Exception:
+        return False
+
+
+def get_ibmi_password(username):
+    """Retrieve a remembered IBM i login password from the OS keyring."""
+    if not username or not (_KEYRING_AVAILABLE and keyring is not None):
+        return ""
+    try:
+        return keyring.get_password(_IBMI_SERVICE_NAME, username) or ""
+    except Exception:
+        return ""
+
+
+def load_login_credentials():
+    """Load the remembered IBM i username and preference from config.json."""
+    config_path = get_config_path()
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                credentials = (json.load(f) or {}).get("LOGIN_CREDENTIALS", {})
+            if isinstance(credentials, dict):
+                return {
+                    "remember": bool(credentials.get("remember", False)),
+                    "username": str(credentials.get("username", "")),
+                }
+        except Exception:
+            pass
+    return {"remember": False, "username": ""}
 
 
 def _coerce_to_list(value):
@@ -461,7 +500,7 @@ def safe_json_append_and_save(file_path: str, new_entry: dict, max_retries: int 
     return False
 
 
-def save_all_configs(server_configs, expected_subsystems=None, expected_ports=None, email_alerts=None):
+def save_all_configs(server_configs, expected_subsystems=None, expected_ports=None, email_alerts=None, login_credentials=None):
     """Saves server configuration and system/email settings into the persistent config.json."""
     config_path = get_config_path()
     config_dir = os.path.dirname(config_path)
@@ -507,6 +546,11 @@ def save_all_configs(server_configs, expected_subsystems=None, expected_ports=No
             data[k] = v
 
     data["EMAIL_ALERTS"] = merged_email
+    if isinstance(login_credentials, dict):
+        data["LOGIN_CREDENTIALS"] = {
+            "remember": bool(login_credentials.get("remember", False)),
+            "username": str(login_credentials.get("username", "")),
+        }
 
     return safe_json_save(config_path, data)
 
