@@ -22,7 +22,7 @@ UninstallDisplayIcon={app}\{#AppExeName}
 
 [Files]
 Source: "dist\{#AppBundleName}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Offline-only release build: no Firebase service account JSON is bundled.
+; Offline-only release build: no cloud service account JSON is bundled.
 ; The workflow removes any legacy credential file before packaging.
 
 [Icons]

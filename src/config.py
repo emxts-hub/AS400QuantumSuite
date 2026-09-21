@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 APP_NAME = "AS400 Quantum Suite"
 APP_VERSION = "5.0.0"
 USER_PROFILE = os.environ.get("USERPROFILE") or os.path.expanduser("~")
-ONEDRIVE_SHAREPOINT_PATH = os.path.join(
+DEFAULT_ONEDRIVE_SHAREPOINT_PATH = os.path.join(
     USER_PROFILE,
     "OneDrive - Questronix Corporation",
     "MCSU Engineering and Hybrid Infra - Documents",
@@ -17,14 +17,20 @@ ONEDRIVE_SHAREPOINT_PATH = os.path.join(
     "RUNBOOK",
     "ASPCPU logs",
 )
+ONEDRIVE_SHAREPOINT_PATH = DEFAULT_ONEDRIVE_SHAREPOINT_PATH
 
 HARD_EXPIRATION_DATE = datetime(2026, 12, 31, tzinfo=timezone.utc)
 _expiration_env = os.getenv("APP_HARD_EXPIRATION_DATE")
 if _expiration_env:
     try:
-        HARD_EXPIRATION_DATE = datetime.fromisoformat(_expiration_env.replace("Z", "+00:00"))
+        parsed_expiration = datetime.fromisoformat(_expiration_env.replace("Z", "+00:00"))
+        HARD_EXPIRATION_DATE = (
+            parsed_expiration.replace(tzinfo=timezone.utc)
+            if parsed_expiration.tzinfo is None
+            else parsed_expiration.astimezone(timezone.utc)
+        )
     except ValueError:
-        HARD_EXPIRATION_DATE = None
+        pass
 
 # GitHub Pages URL serving your version metadata
 VERSION_CHECK_URL = "https://emxts-hub.github.io/monitoringtool/version.json"
@@ -40,9 +46,12 @@ def parse_version(ver_str: str) -> tuple:
     """Convert semver string ('1.0.0') to integer tuple (1, 0, 0) for comparison."""
     try:
         clean_str = ver_str.split("-")[0].strip()
-        return tuple(map(int, clean_str.split(".")))
+        parts = tuple(map(int, clean_str.split(".")))
+        if len(parts) != 3 or any(part < 0 for part in parts):
+            raise ValueError("version must contain three non-negative components")
+        return parts
     except (ValueError, AttributeError):
-        return (0, 0, 0)
+        raise ValueError(f"Invalid version: {ver_str!r}") from None
 
 
 def get_app_data_dir():
@@ -65,6 +74,31 @@ def get_app_data_dir():
 def get_config_path():
     """Returns the writable path to the application configuration file."""
     return os.path.join(get_app_data_dir(), "config.json")
+
+
+def _load_saved_logs_root():
+    try:
+        with open(get_config_path(), "r", encoding="utf-8") as file:
+            value = (json.load(file) or {}).get("LOGS_ROOT")
+        if isinstance(value, str) and value.strip():
+            return os.path.abspath(os.path.expandvars(os.path.expanduser(value.strip())))
+    except (OSError, TypeError, ValueError):
+        pass
+    return DEFAULT_ONEDRIVE_SHAREPOINT_PATH
+
+
+def set_logs_root(path):
+    """Set the active root directory used for monthly logs."""
+    global ONEDRIVE_SHAREPOINT_PATH
+    raw_path = str(path).strip()
+    if not raw_path:
+        raise ValueError("Log root cannot be empty")
+    normalized = os.path.abspath(os.path.expandvars(os.path.expanduser(raw_path)))
+    ONEDRIVE_SHAREPOINT_PATH = normalized
+    return normalized
+
+
+ONEDRIVE_SHAREPOINT_PATH = _load_saved_logs_root()
 
 LEGACY_LOGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 
@@ -97,16 +131,18 @@ def _monthly_log_root():
 
 def get_logs_dir():
     """Use the current monthly SharePoint offline log directory; fall back to the legacy app folder only if needed."""
-    preferred = _monthly_log_root()
-    if os.path.isdir(preferred):
-        return preferred
+    try:
+        preferred = _monthly_log_root()
+        if os.path.isdir(preferred):
+            return preferred
+    except OSError:
+        preferred = None
 
-    if os.path.isdir(LEGACY_LOGS_DIR):
+    try:
         os.makedirs(LEGACY_LOGS_DIR, exist_ok=True)
         return LEGACY_LOGS_DIR
-
-    os.makedirs(preferred, exist_ok=True)
-    return preferred
+    except OSError:
+        raise
 
 
 def get_monthly_logs_dir_for(month_key=None):
@@ -121,26 +157,32 @@ def get_monthly_logs_dir_for(month_key=None):
         return get_logs_dir()
 
     preferred = os.path.join(ONEDRIVE_SHAREPOINT_PATH, str(year), month_label)
-    os.makedirs(preferred, exist_ok=True)
-    return preferred
+    try:
+        os.makedirs(preferred, exist_ok=True)
+        return preferred
+    except OSError:
+        return get_logs_dir()
 
 
 def get_all_logs_dirs():
     """Return every valid log root in the SharePoint archive, including the active month and historic month folders."""
     dirs = []
-    candidates = [
-        _monthly_log_root(),
-        _year_log_root(),
-        ONEDRIVE_SHAREPOINT_PATH,
-        LEGACY_LOGS_DIR,
-    ]
+    candidates = [ONEDRIVE_SHAREPOINT_PATH, LEGACY_LOGS_DIR]
+    for root_builder in (_monthly_log_root, _year_log_root):
+        try:
+            candidates.append(root_builder())
+        except OSError:
+            pass
 
     for candidate in candidates:
         if candidate and os.path.isdir(candidate):
             dirs.append(candidate)
 
-    year_root = _year_log_root()
-    if os.path.isdir(year_root):
+    try:
+        year_root = _year_log_root()
+    except OSError:
+        year_root = None
+    if year_root is not None and os.path.isdir(year_root):
         for child in sorted(os.listdir(year_root)):
             child_path = os.path.join(year_root, child)
             if os.path.isdir(child_path):
@@ -168,17 +210,22 @@ def get_resource_path(relative_path):
     if meipass:
         add_candidate(meipass, relative_path)
         add_candidate(meipass, "src", relative_path)
+        add_candidate(meipass, "Image & Sound", relative_path)
     elif getattr(sys, "frozen", False):
         add_candidate(os.path.dirname(sys.executable), relative_path)
         add_candidate(os.path.dirname(sys.executable), "src", relative_path)
+        add_candidate(os.path.dirname(sys.executable), "Image & Sound", relative_path)
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     add_candidate(script_dir, relative_path)
     add_candidate(script_dir, "src", relative_path)
+    add_candidate(script_dir, "..", "Image & Sound", relative_path)
     add_candidate(os.getcwd(), relative_path)
     add_candidate(os.getcwd(), "src", relative_path)
+    add_candidate(os.getcwd(), "Image & Sound", relative_path)
     add_candidate(get_app_data_dir(), relative_path)
     add_candidate(get_app_data_dir(), "src", relative_path)
+    add_candidate(get_app_data_dir(), "Image & Sound", relative_path)
 
     for candidate in candidates:
         if os.path.exists(candidate):
@@ -233,204 +280,18 @@ def load_expected_ports():
     return _load_config_mapping("EXPECTED_PORTS", DEFAULT_EXPECTED_PORTS)
 
 
-# Optional keyring integration for secure password storage
-try:
-    import keyring
-    _KEYRING_AVAILABLE = True
-except Exception:
-    keyring = None
-    _KEYRING_AVAILABLE = False
-
-_EMAIL_SERVICE_NAME = f"{APP_NAME}_smtp"
-_IBMI_SERVICE_NAME = f"{APP_NAME}_ibmi"
-
-
-def save_email_password(username, password):
-    """Store SMTP password securely in the OS keyring when available.
-
-    We intentionally do not persist SMTP secrets into config.json because that
-    would store plaintext credentials on disk.
-    """
-    if not username:
-        return False
-    if _KEYRING_AVAILABLE and keyring is not None:
-        try:
-            keyring.set_password(_EMAIL_SERVICE_NAME, username, password or "")
-            return True
-        except Exception:
-            return False
-    return False
-
-
-def get_email_password(username):
-    """Retrieve SMTP password from keyring. Environment variables are also accepted.
-
-    Secrets are never loaded from config.json to avoid plaintext storage.
-    """
-    if not username:
-        return ""
-
-    env_password = os.getenv("SMTP_PASSWORD") or os.getenv("APP_SMTP_PASSWORD")
-    if env_password is not None:
-        return str(env_password)
-
-    if _KEYRING_AVAILABLE and keyring is not None:
-        try:
-            val = keyring.get_password(_EMAIL_SERVICE_NAME, username)
-            return val or ""
-        except Exception:
-            pass
-
-    return ""
-
-
-def save_ibmi_password(username, password):
-    """Store the IBM i login password securely in the OS keyring."""
-    if not username or not (_KEYRING_AVAILABLE and keyring is not None):
-        return False
-    try:
-        keyring.set_password(_IBMI_SERVICE_NAME, username, password or "")
-        return True
-    except Exception:
-        return False
-
-
-def get_ibmi_password(username):
-    """Retrieve a remembered IBM i login password from the OS keyring."""
-    if not username or not (_KEYRING_AVAILABLE and keyring is not None):
-        return ""
-    try:
-        return keyring.get_password(_IBMI_SERVICE_NAME, username) or ""
-    except Exception:
-        return ""
-
-
-def load_login_credentials():
-    """Load the remembered IBM i username and preference from config.json."""
-    config_path = get_config_path()
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                credentials = (json.load(f) or {}).get("LOGIN_CREDENTIALS", {})
-            if isinstance(credentials, dict):
-                return {
-                    "remember": bool(credentials.get("remember", False)),
-                    "username": str(credentials.get("username", "")),
-                }
-        except Exception:
-            pass
-    return {"remember": False, "username": ""}
-
-
-def _coerce_to_list(value):
-    if isinstance(value, str):
-        return [item.strip() for item in value.split(",") if item.strip()]
-    if isinstance(value, (list, tuple, set)):
-        return [str(item).strip() for item in value if str(item).strip()]
-    return []
-
-
-def _env_bool(name, default=False):
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return str(value).strip().lower() not in {"0", "false", "no", "off", ""}
-
-
-def load_email_alerts():
-    """Loads email alert settings from config.json if present; otherwise returns defaults.
-
-    Environment variables override the file values for runtime configuration and
-    credentials are read from keyring or the process environment rather than from
-    a plaintext JSON file.
-    """
-    config_path = get_config_path()
-    merged = DEFAULT_EMAIL_ALERTS.copy()
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                user_email = data.get("EMAIL_ALERTS")
-                if isinstance(user_email, dict):
-                    merged.update(user_email)
-        except Exception:
-            pass
-
-    # Runtime environment overrides (useful for secure deployments and local testing)
-    env_server = os.getenv("SMTP_SERVER")
-    if env_server:
-        merged["smtp_server"] = env_server
-    env_username = os.getenv("SMTP_USERNAME")
-    if env_username:
-        merged["username"] = env_username
-    env_from = os.getenv("SMTP_FROM_ADDRESS")
-    if env_from:
-        merged["from_address"] = env_from
-    env_to = os.getenv("SMTP_TO_ADDRESSES")
-    if env_to:
-        merged["to_addresses"] = _coerce_to_list(env_to)
-    env_port = os.getenv("SMTP_PORT")
-    if env_port:
-        try:
-            merged["port"] = int(env_port)
-        except ValueError:
-            pass
-    env_tls = os.getenv("SMTP_USE_TLS")
-    if env_tls is not None:
-        merged["use_tls"] = _env_bool("SMTP_USE_TLS", merged.get("use_tls", True))
-    env_enabled = os.getenv("SMTP_ENABLED")
-    if env_enabled is not None:
-        merged["enabled"] = _env_bool("SMTP_ENABLED", merged.get("enabled", False))
-
-    # Normalize to_addresses to a list
-    merged["to_addresses"] = _coerce_to_list(merged.get("to_addresses", []))
-
-    # Ensure numeric fields are correct types
-    try:
-        merged["port"] = int(merged.get("port", 587) or 587)
-    except Exception:
-        merged["port"] = 587
-
-    merged["enabled"] = bool(merged.get("enabled", False))
-    merged["use_tls"] = bool(merged.get("use_tls", True))
-    try:
-        merged["threshold_percent"] = float(merged.get("threshold_percent", 40.0) or 40.0)
-    except Exception:
-        merged["threshold_percent"] = 40.0
-    try:
-        merged["cooldown_minutes"] = int(merged.get("cooldown_minutes", 10) or 10)
-    except Exception:
-        merged["cooldown_minutes"] = 10
-    try:
-        merged["log_dedupe_seconds"] = int(merged.get("log_dedupe_seconds", 60) or 60)
-    except Exception:
-        merged["log_dedupe_seconds"] = 60
-
-    try:
-        merged_password = get_email_password(merged.get("username", ""))
-        if merged_password:
-            merged["password"] = merged_password
-        else:
-            merged["password"] = ""
-    except Exception:
-        merged["password"] = ""
-
-    return merged
-
-
 def _atomic_write_json(target_path: str, payload) -> bool:
     """Write JSON to a destination path with an atomic replace and clean up temps on any error."""
     os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
     temp_path = f"{target_path}.{uuid.uuid4().hex}.tmp"
     try:
         with open(temp_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
+            json.dump(payload, f, indent=2, default=str)
             f.flush()
             os.fsync(f.fileno())
         os.replace(temp_path, target_path)
         return True
-    except Exception as err:
-        print(f"[safe_json_save] Error writing file {target_path}: {err}")
+    except Exception:
         if os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
@@ -444,14 +305,13 @@ def safe_json_save(file_path: str, data) -> bool:
     target_path = file_path
     try:
         return _atomic_write_json(target_path, data)
-    except Exception as err:
+    except Exception:
         fallback_path = _fallback_json_path(file_path)
         if os.path.normpath(fallback_path) == os.path.normpath(file_path):
             return False
         try:
             return _atomic_write_json(fallback_path, data)
-        except Exception as fallback_err:
-            print(f"[safe_json_save] Fallback save failed for {fallback_path}: {fallback_err}")
+        except Exception:
             return False
 
 
@@ -500,64 +360,19 @@ def safe_json_append_and_save(file_path: str, new_entry: dict, max_retries: int 
     return False
 
 
-def save_all_configs(server_configs, expected_subsystems=None, expected_ports=None, email_alerts=None, login_credentials=None):
-    """Saves server configuration and system/email settings into the persistent config.json."""
-    config_path = get_config_path()
-    config_dir = os.path.dirname(config_path)
-    if config_dir:
-        os.makedirs(config_dir, exist_ok=True)
-
-    if expected_subsystems is None:
-        expected_subsystems = load_expected_subsystems()
-    if expected_ports is None:
-        expected_ports = load_expected_ports()
-
-    existing = {}
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                existing = json.load(f) or {}
-        except Exception:
-            existing = {}
-
-    merged_email = load_email_alerts()
-    if isinstance(email_alerts, dict):
-        merged_email.update(email_alerts)
-
-    try:
-        pwd = merged_email.pop("password", None)
-        username = merged_email.get("username", "")
-        if pwd is not None and username:
-            try:
-                save_email_password(username, pwd)
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    data = {
-        "SERVER_CONFIGS": server_configs,
-        "EXPECTED_SUBSYSTEMS": expected_subsystems,
-        "EXPECTED_PORTS": expected_ports,
-    }
-
-    for k, v in existing.items():
-        if k not in data:
-            data[k] = v
-
-    data["EMAIL_ALERTS"] = merged_email
-    if isinstance(login_credentials, dict):
-        data["LOGIN_CREDENTIALS"] = {
-            "remember": bool(login_credentials.get("remember", False)),
-            "username": str(login_credentials.get("username", "")),
-        }
-
-    return safe_json_save(config_path, data)
-
-
 SERVER_CONFIGS = load_server_configs()
 EXPECTED_SUBSYSTEMS = load_expected_subsystems()
 EXPECTED_PORTS = load_expected_ports()
+
+from ui.setcreds import (
+    get_email_password,
+    get_ibmi_password,
+    load_email_alerts,
+    load_login_credentials,
+    save_all_configs,
+    save_email_password,
+    save_ibmi_password,
+)
 EMAIL_ALERTS = load_email_alerts()
 
 MONITORED_PORTS = {}

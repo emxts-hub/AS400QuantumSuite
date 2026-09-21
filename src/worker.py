@@ -17,13 +17,14 @@ from config import (
     SERVER_CONFIGS, 
     MONITORED_PORTS, 
     EXPECTED_PORTS, 
-    get_logs_dir, 
-    load_email_alerts, 
+    get_logs_dir,
+    get_all_logs_dirs,
     get_resource_path, 
     EXPECTED_SUBSYSTEMS,
     safe_json_append_and_save,
     safe_json_save,
 )
+from ui.setcreds import load_email_alerts
 
 _LOG_WRITE_LOCK = threading.Lock()
 _LOG_MUTEX_NAME = "Local\\AS400QuantumSuite_DailyLogWrite"
@@ -35,11 +36,17 @@ _LAST_ASP_ALERT_STATE = {}
 _LAST_ASP_SOUND_STATE = {"armed": False, "sent_at": 0.0}
 _LAST_ASP_EMAIL_STATE = {}
 _LAST_SERVER_STATUS = {}
+_SERVER_ALERTING_SERVERS = set()
 _ALERT_SOUND_STOP_EVENT = threading.Event()
 _ALERT_SOUND_PROCESSES = set()
 _ALERT_SOUND_PROCESS_LOCK = threading.Lock()
 _ALERT_SOUND_LOCK = threading.Lock()
 _ALERT_SOUND_THREAD = None
+_SERVER_ALERT_SOUND_STOP_EVENT = threading.Event()
+_SERVER_ALERT_SOUND_PROCESSES = set()
+_SERVER_ALERT_SOUND_PROCESS_LOCK = threading.Lock()
+_SERVER_ALERT_SOUND_LOCK = threading.Lock()
+_SERVER_ALERT_SOUND_THREAD = None
 
 
 class DailyBackupFetchThread(QThread):
@@ -48,12 +55,9 @@ class DailyBackupFetchThread(QThread):
     error = pyqtSignal(str, str)
 
     HOST_NAME_QUERY = """
-        SELECT SUBSTR(
-            HOST_NAME,
-            GREATEST(LOCATE('JDAD', HOST_NAME), LOCATE('JDAP', HOST_NAME)),
-            6
-        ) AS HOST_NAME
-        FROM SYSIBMADM.ENV_SYS_INFO
+        SELECT 
+            HOST_NAME
+        FROM TABLE(QSYS2.SYSTEM_STATUS())   
     """
 
     QUERY = """
@@ -128,9 +132,21 @@ def _logger_worker():
 
         sys_info, server_configs = item
         try:
-            save_single_lpar_log(sys_info, server_configs)
-        except Exception:
-            pass
+            result = None
+            for attempt in range(3):
+                try:
+                    result = save_single_lpar_log(sys_info, server_configs)
+                    if result in {"saved", "already_recorded"}:
+                        break
+                    if result not in {"file_busy", "failed"}:
+                        break
+                except Exception as exc:
+                    result = f"exception: {exc}"
+                if attempt < 2:
+                    time.sleep(0.25 * (attempt + 1))
+
+            if result not in {"saved", "already_recorded"}:
+                print(f"[log_worker] Log persistence failed after retries: {result!r}")
         finally:
             _LOG_QUEUE.task_done()
 
@@ -262,6 +278,119 @@ def play_alert_sound(name):
         return True
     except Exception:
         return False
+
+
+def play_server_down_alert_sound():
+    """Loop alert.wav until the monitored server recovers or VPN is lost."""
+    global _SERVER_ALERT_SOUND_THREAD
+
+    with _SERVER_ALERT_SOUND_LOCK:
+        if _SERVER_ALERT_SOUND_THREAD is not None and _SERVER_ALERT_SOUND_THREAD.is_alive():
+            return True
+
+    sound_path = _find_sound_path("alert.wav")
+    if not sound_path:
+        print("Alert sound not found: alert.wav")
+        return False
+
+    try:
+        _repair_wav_file_if_needed(sound_path)
+    except Exception:
+        pass
+
+    _SERVER_ALERT_SOUND_STOP_EVENT.clear()
+
+    def play_once():
+        if sys.platform == "win32":
+            import winsound
+            winsound.PlaySound(
+                str(sound_path),
+                winsound.SND_FILENAME | winsound.SND_NODEFAULT | winsound.SND_ASYNC,
+            )
+            _SERVER_ALERT_SOUND_STOP_EVENT.wait(2.0)
+            return
+
+        command = ["afplay", str(sound_path)] if sys.platform == "darwin" else [
+            "ffplay", "-nodisp", "-autoexit", str(sound_path)
+        ]
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        with _SERVER_ALERT_SOUND_PROCESS_LOCK:
+            _SERVER_ALERT_SOUND_PROCESSES.add(process)
+        try:
+            while process.poll() is None and not _SERVER_ALERT_SOUND_STOP_EVENT.wait(0.1):
+                pass
+            if _SERVER_ALERT_SOUND_STOP_EVENT.is_set() and process.poll() is None:
+                process.terminate()
+        finally:
+            with _SERVER_ALERT_SOUND_PROCESS_LOCK:
+                _SERVER_ALERT_SOUND_PROCESSES.discard(process)
+
+    def loop():
+        global _SERVER_ALERT_SOUND_THREAD
+        try:
+            while not _SERVER_ALERT_SOUND_STOP_EVENT.is_set():
+                try:
+                    play_once()
+                except Exception:
+                    return
+                if not _SERVER_ALERT_SOUND_STOP_EVENT.wait(1.0):
+                    continue
+        finally:
+            with _SERVER_ALERT_SOUND_LOCK:
+                if _SERVER_ALERT_SOUND_THREAD is threading.current_thread():
+                    _SERVER_ALERT_SOUND_THREAD = None
+
+    thread = threading.Thread(
+        target=loop,
+        daemon=True,
+        name="AS400QuantumSuite-ServerAlertSound",
+    )
+    with _SERVER_ALERT_SOUND_LOCK:
+        if _SERVER_ALERT_SOUND_THREAD is not None and _SERVER_ALERT_SOUND_THREAD.is_alive():
+            return True
+        _SERVER_ALERT_SOUND_THREAD = thread
+    thread.start()
+    return True
+
+
+def stop_server_down_alert_sound():
+    """Stop the looping server-disconnected sound without affecting ASP alerts."""
+    global _SERVER_ALERT_SOUND_THREAD
+    _SERVER_ALERT_SOUND_STOP_EVENT.set()
+
+    if sys.platform == "win32":
+        try:
+            import winsound
+            winsound.PlaySound(None, winsound.SND_PURGE)
+            winsound.PlaySound(None, 0)
+        except Exception:
+            pass
+
+    with _SERVER_ALERT_SOUND_PROCESS_LOCK:
+        processes = list(_SERVER_ALERT_SOUND_PROCESSES)
+        _SERVER_ALERT_SOUND_PROCESSES.clear()
+
+    for process in processes:
+        try:
+            if process.poll() is None:
+                process.terminate()
+        except Exception:
+            pass
+
+    with _SERVER_ALERT_SOUND_LOCK:
+        _SERVER_ALERT_SOUND_THREAD = None
+
+
+def stop_all_server_status_alerts():
+    """Stop server-down playback and forget all active server outage states."""
+    with _ALERT_STATE_LOCK:
+        _LAST_SERVER_STATUS.clear()
+        _SERVER_ALERTING_SERVERS.clear()
+    stop_server_down_alert_sound()
 
 
 def play_asp_alert_sound():
@@ -517,21 +646,61 @@ def send_server_status_alert(server_name, status, error=""):
 
 
 def maybe_send_server_status_alert(result):
-    """Alert once when a server goes offline and play up.wav on recovery."""
+    """Alert on a reachable-VPN outage and play up.wav on recovery.
+
+    An offline result without the monitoring VPN is treated as a local network
+    condition, not as proof that the IBM i server is down.
+    """
     server_name = str(result.get("server") or result.get("config_key") or "Unknown server")
     status = str(result.get("status", "OFFLINE")).upper()
     is_down = status == "OFFLINE"
     is_up = status in {"ONLINE", "DEGRADED"}
 
+    if is_down and not has_vpn_ip():
+        should_stop_sound = False
+        with _ALERT_STATE_LOCK:
+            _LAST_SERVER_STATUS.pop(server_name, None)
+            _SERVER_ALERTING_SERVERS.discard(server_name)
+            should_stop_sound = not _SERVER_ALERTING_SERVERS
+        if should_stop_sound:
+            stop_server_down_alert_sound()
+        return False
+
     with _ALERT_STATE_LOCK:
         previous_status = _LAST_SERVER_STATUS.get(server_name)
         _LAST_SERVER_STATUS[server_name] = status
+        if is_down:
+            _SERVER_ALERTING_SERVERS.add(server_name)
+        elif is_up:
+            _SERVER_ALERTING_SERVERS.discard(server_name)
+        should_stop_sound = not _SERVER_ALERTING_SERVERS
 
     if is_down and previous_status != "OFFLINE":
-        play_alert_sound("alert.wav")
+        # Recheck immediately before alerting so a VPN disconnect cannot turn
+        # a server connection failure into a false server-down notification.
+        if not has_vpn_ip():
+            with _ALERT_STATE_LOCK:
+                _LAST_SERVER_STATUS.pop(server_name, None)
+                _SERVER_ALERTING_SERVERS.discard(server_name)
+                should_stop_sound = not _SERVER_ALERTING_SERVERS
+            if should_stop_sound:
+                stop_server_down_alert_sound()
+            return False
+
+        play_server_down_alert_sound()
+        if not has_vpn_ip():
+            with _ALERT_STATE_LOCK:
+                _LAST_SERVER_STATUS.pop(server_name, None)
+                _SERVER_ALERTING_SERVERS.discard(server_name)
+                should_stop_sound = not _SERVER_ALERTING_SERVERS
+            if should_stop_sound:
+                stop_server_down_alert_sound()
+            return False
         return send_server_status_alert(server_name, status, str(result.get("error", "")))
 
     if is_up and previous_status == "OFFLINE":
+        if should_stop_sound:
+            stop_server_down_alert_sound()
         return play_alert_sound("up.wav")
 
     return False
@@ -612,24 +781,27 @@ def has_vpn_ip(prefix="10.212."):
 
 
 def cleanup_old_logs(days_to_keep=30):
-    """Delete canonical daily log files older than the retention period."""
-    logs_dir = get_logs_dir()
+    """Delete canonical daily log files older than the retention period in all archives."""
     cutoff_date = datetime.now() - timedelta(days=days_to_keep)
     log_pattern = re.compile(r"^lpar_history_(\d{4}-\d{2}-\d{2})\.json$")
-    
-    if not os.path.exists(logs_dir):
-        return
 
-    for filename in os.listdir(logs_dir):
-        match = log_pattern.match(filename)
-        if not match:
+    for logs_dir in get_all_logs_dirs():
+        if not os.path.exists(logs_dir):
             continue
         try:
-            file_date = datetime.strptime(match.group(1), "%Y-%m-%d")
-            if file_date < cutoff_date:
-                os.remove(os.path.join(logs_dir, filename))
-        except (OSError, ValueError):
-            pass
+            filenames = os.listdir(logs_dir)
+        except OSError:
+            continue
+        for filename in filenames:
+            match = log_pattern.match(filename)
+            if not match:
+                continue
+            try:
+                file_date = datetime.strptime(match.group(1), "%Y-%m-%d")
+                if file_date < cutoff_date:
+                    os.remove(os.path.join(logs_dir, filename))
+            except (OSError, ValueError):
+                pass
 
 
 def _has_server_issues(sys_info, server_configs=None):
@@ -1013,7 +1185,11 @@ def _save_single_lpar_log(sys_info, server_configs=None):
 
 
 def _persist_and_emit(runnable, result):
-    runnable.signals.server_fetched.emit(result)
+    try:
+        runnable.signals.server_fetched.emit(result)
+    except RuntimeError as exc:
+        if "already been deleted" not in str(exc) and "has been deleted" not in str(exc):
+            raise
     try:
         queue_log_persistence(result, SERVER_CONFIGS)
     except Exception as exc:
@@ -1070,7 +1246,7 @@ class SingleLparRunnable(QRunnable):
 
             system_name = self.server
             try:
-                cursor.execute("SELECT SUBSTR(HOST_NAME, GREATEST(LOCATE('JDAD', HOST_NAME), LOCATE('JDAP', HOST_NAME)), 6) AS HOST_NAME FROM SYSIBMADM.ENV_SYS_INFO")
+                cursor.execute("SELECT HOST_NAME FROM TABLE(QSYS2.SYSTEM_STATUS())")
                 row = cursor.fetchone()
                 if row and row[0] is not None:
                     resolved_name = str(row[0]).strip()

@@ -16,7 +16,7 @@ def _read_local_log_file(file_path):
 
 
 def write_log(entry):
-    """Persist log entries locally only; online syncing is intentionally disabled."""
+    """Persist log entries locally; this module does not provide cloud sync."""
     if not isinstance(entry, dict):
         return False
 
@@ -53,7 +53,7 @@ def write_log(entry):
 
 
 def sync_pending_logs():
-    """Offline mode: there is no online sync queue to flush."""
+    """Return zero because cloud synchronization is not part of this build."""
     return 0
 
 

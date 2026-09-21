@@ -1,9 +1,10 @@
 import json
 import os
+import threading
 from datetime import datetime
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QCursor
+from PyQt6.QtGui import QCursor, QFont
 from PyQt6.QtWidgets import (
     QComboBox,
     QGroupBox,
@@ -18,8 +19,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from config import get_logs_dir
+from config import get_logs_dir, safe_json_save
 from worker import DailyBackupFetchThread
+
+_BACKUP_FILE_LOCK = threading.RLock()
 
 
 class BackupManagementWidget(QWidget):
@@ -56,13 +59,19 @@ class BackupManagementWidget(QWidget):
         self.backup_fetch_thread = None
         self.backup_fetch_threads = {}
         self.backup_tables = {}
+        self.backup_average_labels = {}
+        self.backup_weekly_average_labels = {}
         self.backup_server_buttons = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
 
         title = QLabel("Backup Management")
+        title.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
         layout.addWidget(title)
+        subtitle = QLabel("Selected systems - Daily averages")
+        subtitle.setFont(QFont("Segoe UI", 10, QFont.Weight.Normal))
+        layout.addWidget(subtitle)
 
         # Control Row containing Server Buttons and Month Selector
         self.server_row = QHBoxLayout()
@@ -158,15 +167,32 @@ class BackupManagementWidget(QWidget):
         table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setWordWrap(False)
-        table.verticalHeader().setVisible(False)
-        table.horizontalHeader().setStretchLastSection(True)
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for column in range(1, 5):
-            table.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        vertical_header = table.verticalHeader()
+        horizontal_header = table.horizontalHeader()
+        if vertical_header is not None:
+            vertical_header.setVisible(False)
+        if horizontal_header is not None:
+            horizontal_header.setStretchLastSection(True)
+            horizontal_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            for column in range(1, 5):
+                horizontal_header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         table.setMinimumHeight(310)
         table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         panel_layout.addWidget(table, stretch=1)
+        average_label = QLabel("Average: 00h 00m")
+        average_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        average_label.setContentsMargins(6, 0, 0, 0)
+        panel_layout.addWidget(average_label)
+        weekly_average_label = None
+        if backup_type == "daily":
+            weekly_average_label = QLabel("Weekly Average: 00h 00m")
+            weekly_average_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+            weekly_average_label.setContentsMargins(6, 0, 0, 0)
+            panel_layout.addWidget(weekly_average_label)
         self.backup_tables[backup_type] = table
+        self.backup_average_labels[backup_type] = average_label
+        if weekly_average_label is not None:
+            self.backup_weekly_average_labels[backup_type] = weekly_average_label
         return panel
 
     def select_server(self, server_name):
@@ -248,18 +274,73 @@ class BackupManagementWidget(QWidget):
             ]
             for column_index, value in enumerate(values):
                 table.setItem(row_index, column_index, QTableWidgetItem(str(value or "")))
+        backup_type = next(
+            (kind for kind, backup_table in self.backup_tables.items() if backup_table is table),
+            None,
+        )
+        if backup_type is not None:
+            average_title = "Daily Average" if backup_type == "daily" else "Average"
+            self.backup_average_labels[backup_type].setText(
+                f"{average_title}: "
+                f"{self._average_backup_duration(self._weekday_records(records)) if backup_type == 'daily' else self._average_backup_duration(records)}"
+            )
+            if backup_type == "daily":
+                self.backup_weekly_average_labels[backup_type].setText(
+                    f"Weekly Average: {self._average_backup_duration(self._sunday_records(records))}"
+                )
+
+    @staticmethod
+    def _record_start_date(record):
+        value = record.get("start_time", "")
+        try:
+            parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return parsed.date()
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _weekday_records(cls, records):
+        return [record for record in records if (start_date := cls._record_start_date(record)) is not None and start_date.weekday() < 6]
+
+    @classmethod
+    def _sunday_records(cls, records):
+        return [record for record in records if (start_date := cls._record_start_date(record)) is not None and start_date.weekday() == 6]
+
+    @classmethod
+    def _average_backup_duration(cls, records):
+        durations = []
+        for record in records:
+            seconds = cls._backup_duration_seconds(
+                record.get("start_time", ""), record.get("end_time", "")
+            )
+            if seconds is not None:
+                durations.append(seconds)
+        if not durations:
+            return "00h 00m"
+        average_seconds = round(sum(durations) / len(durations))
+        hours, remainder = divmod(average_seconds, 3600)
+        minutes = remainder // 60
+        return f"{hours:02d}h {minutes:02d}m"
+
+    @staticmethod
+    def _backup_duration_seconds(start_time, end_time):
+        if not start_time or not end_time:
+            return None
+        try:
+            start = start_time if isinstance(start_time, datetime) else datetime.fromisoformat(str(start_time).replace("Z", "+00:00"))
+            end = end_time if isinstance(end_time, datetime) else datetime.fromisoformat(str(end_time).replace("Z", "+00:00"))
+            return max(0, int((end - start).total_seconds()))
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _backup_duration(start_time, end_time):
+        seconds = BackupManagementWidget._backup_duration_seconds(start_time, end_time)
         if not start_time:
             return ""
         if not end_time:
             return "RUNNING"
-        try:
-            start = start_time if isinstance(start_time, datetime) else datetime.fromisoformat(str(start_time).replace("Z", "+00:00"))
-            end = end_time if isinstance(end_time, datetime) else datetime.fromisoformat(str(end_time).replace("Z", "+00:00"))
-            seconds = max(0, int((end - start).total_seconds()))
-        except (TypeError, ValueError):
+        if seconds is None:
             return ""
         hours, remainder = divmod(seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
@@ -314,37 +395,28 @@ class BackupManagementWidget(QWidget):
     def _handle_backup_data(self, backup_type, server_name, records):
         current_month = datetime.now().strftime("%Y-%m")
         path = self._backup_json_path(backup_type, current_month)
-        data = {}
-        try:
-            if os.path.exists(path):
-                with open(path, "r", encoding="utf-8") as file:
-                    data = json.load(file) or {}
-        except (OSError, ValueError):
-            data = {}
+        with _BACKUP_FILE_LOCK:
+            data = self._read_backup_file(path)
+            existing_records = data.get(server_name, [])
 
-        existing_records = data.get(server_name, [])
+            combined = {
+                (rec.get("job_name"), str(rec.get("start_time"))): rec
+                for rec in existing_records + records
+            }
+            updated_records = sorted(
+                combined.values(),
+                key=lambda x: str(x.get("start_time", "")),
+                reverse=True,
+            )
+            data[server_name] = updated_records
 
-        # Deduplicate records by combining job_name and start_time
-        combined = {
-            (rec.get("job_name"), str(rec.get("start_time"))): rec
-            for rec in existing_records + records
-        }
-
-        updated_records = sorted(
-            combined.values(),
-            key=lambda x: str(x.get("start_time", "")),
-            reverse=True
-        )
-
-        data[server_name] = updated_records
-
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as file:
-                json.dump(data, file, indent=2, default=str)
-        except OSError as exc:
-            self._handle_backup_error(backup_type, server_name, f"Could not save backup history: {exc}")
-            return
+            if not safe_json_save(path, data):
+                self._handle_backup_error(
+                    backup_type,
+                    server_name,
+                    "Could not save backup history; the destination is unavailable.",
+                )
+                return
 
         if server_name == self.backup_selected_server:
             selected_month = self._selected_month_prefix()
@@ -354,25 +426,26 @@ class BackupManagementWidget(QWidget):
     def _handle_backup_error(self, backup_type, server_name, message):
         current_month = datetime.now().strftime("%Y-%m")
         path = self._backup_json_path(backup_type, current_month)
-        data = {}
+        with _BACKUP_FILE_LOCK:
+            data = self._read_backup_file(path)
+            data.setdefault(server_name, [])
+            data.setdefault("_errors", {})[server_name] = {
+                "message": message,
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+            }
+            safe_json_save(path, data)
+        self._set_status(f"Backup error for {server_name}: {message}")
+
+    @staticmethod
+    def _read_backup_file(path):
         try:
             if os.path.exists(path):
                 with open(path, "r", encoding="utf-8") as file:
                     data = json.load(file) or {}
+                    return data if isinstance(data, dict) else {}
         except (OSError, ValueError):
-            data = {}
-        data.setdefault(server_name, [])
-        data.setdefault("_errors", {})[server_name] = {
-            "message": message,
-            "timestamp": datetime.now().isoformat(timespec="seconds"),
-        }
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as file:
-                json.dump(data, file, indent=2, default=str)
-        except OSError:
             pass
-        self._set_status(f"Backup error for {server_name}: {message}")
+        return {}
 
     def _set_status(self, message):
         if self.status_callback is not None:

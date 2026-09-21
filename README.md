@@ -2,7 +2,7 @@
 
 AS400 Quantum Suite is an enterprise desktop monitoring and administration application for IBM i (AS/400) systems. It helps operators monitor server health in real time, log historical metrics, track subsystem and service status, audit backup job executions, and generate operational reports for performance review.
 
-This project is built with **Python** and **PyQt6**, utilizing asynchronous multi-threading (`QThread`) over IBM DB2 ODBC connections for live system monitoring, backup auditing, alerting, and cloud synchronization.
+This project is built with **Python** and **PyQt6**, utilizing asynchronous multi-threading (`QThread`) over IBM DB2 ODBC connections for live system monitoring, backup auditing, alerting, and local historical logging.
 
 ---
 
@@ -18,7 +18,7 @@ The application provides a central dashboard for monitoring LPARs, system perfor
 - Append-only monthly historical logging (`daily_backup_YYYY-MM.json`) with record deduplication  
 - Dynamic month dropdown filtering for historical audit reporting  
 - Multi-threaded asynchronous DB2/ODBC query execution (`QThread`)  
-- Firebase Firestore logging and offline data synchronization  
+- Local JSON logging with offline retention
 - Email alert configuration and testing (SMTP)  
 - Version update monitoring and expiration checks  
 
@@ -61,9 +61,8 @@ Includes an intelligent `QComboBox` month selector that scans the log directory 
 ### 2.7 Monthly Reporting
 Produces monthly performance trends and operational summaries, with Excel-based output for easier sharing.
 
-### 2.8 Email Alerts & Cloud Synchronization
+### 2.8 Email Alerts
 - Supports SMTP-based email alerts for degraded health, backup failures, or downtime.  
-- Integrates with Firebase Firestore for centralized logging, incident analysis, and offline synchronization.  
 
 ### 2.9 App Security and Version Control
 Includes:
@@ -76,10 +75,10 @@ Includes:
 ## 3. Screenshot Placeholders
 
 - **Main Dashboard**  
-![alt text](image-7.png)
+![alt text](image.png)
 
 - **LPAR Monitoring**  
-
+![alt text](image-7.png)
 
 - **Log Viewer & Backup Management**  
 ![alt text](image-8.png)
@@ -150,7 +149,7 @@ Includes:
 3. QThread workers execute DB2 SQL queries to pull metrics and backup status.
 4. Backup records are deduplicated and appended into monthly JSON files.
 5. BackupManagementWidget updates table views according to server and month filter.
-6. Logs sync to Firebase Firestore; SMTP alerts trigger if thresholds are exceeded.
+6. Logs remain in local monthly JSON archives; SMTP alerts trigger if thresholds are exceeded.
 
 ## 8. Typical Usage Flow
 - Start Monitoring: Configure profiles, test connectivity, launch monitoring threads.
@@ -163,15 +162,17 @@ Includes:
 
   ```plaintext
 AS400QuantumSuite/
+├── Image & Sound/                 # Application logos, navigation icons, and sounds
 ├── src/
 │   ├── main.py                    # Main application entry point
 │   ├── config.py                  # Log directories and server config management
 │   ├── dialogs.py                 # Configuration and credentials dialogs
-│   ├── firebase_store.py          # Firebase / Firestore logging and sync
+│   ├── data_store.py              # Local JSON log storage module
 │   ├── worker.py                  # Async QThread workers for DB2 ODBC queries
 │   ├── version_worker.py          # Application update and version checking thread
 │   └── ui/
 │       ├── main_window.py         # Primary GUI layout and navigation
+│       ├── setcreds.py             # Settings and secure credential persistence
 │       ├── backup_manage_2.py     # Backup Management Widget (Monthly JSON & Filtering)
 │       ├── log_viewer.py          # Historical log viewer UI
 │       ├── monthly_report.py      # Monthly report generator
@@ -179,7 +180,7 @@ AS400QuantumSuite/
 │       └── widgets.py             # Custom reusable UI widgets
 ├── tests/
 │   └── test_hourly_log_recording.py
-├── requirements.txt               # Dependencies (PyQt6, pyodbc, firebase-admin, etc.)
+├── requirements.txt               # Dependencies (PyQt6, pyodbc, openpyxl, etc.)
 ├── setup.iss                      # Inno Setup installer script
 ├── version.json                   # Version manifest
 ├── README.md                      # Project documentation

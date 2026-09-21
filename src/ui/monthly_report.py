@@ -444,6 +444,87 @@ class MonthlyReportWidget(QWidget):
         logs_dir = get_monthly_logs_dir_for(month_key)
         return os.path.join(logs_dir, f"IBM_i_Monthly_Report_{month_key}.xlsx")
 
+    def _build_report_snapshot_path(self, month_key):
+        """Location for the chart data retained after daily logs are cleaned up."""
+        logs_dir = get_monthly_logs_dir_for(month_key)
+        return os.path.join(logs_dir, f"IBM_i_Monthly_Report_{month_key}.json")
+
+    def _save_report_snapshot(self, month_key, cpu_report, asp_report):
+        payload = {"month": month_key, "cpu": cpu_report, "asp": asp_report}
+        snapshot_path = self._build_report_snapshot_path(month_key)
+        temp_path = f"{snapshot_path}.tmp"
+        try:
+            os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
+            with open(temp_path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2)
+            os.replace(temp_path, snapshot_path)
+            return True
+        except (OSError, TypeError, ValueError):
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+            return False
+
+    def _load_report_snapshot(self, month_key):
+        snapshot_path = self._build_report_snapshot_path(month_key)
+        try:
+            with open(snapshot_path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, ValueError, json.JSONDecodeError):
+            payload = None
+        if not isinstance(payload, dict) or payload.get("month") != month_key:
+            payload = None
+        if isinstance(payload, dict) and isinstance(payload.get("cpu"), dict) and isinstance(payload.get("asp"), dict):
+            return payload
+
+        workbook_path = self._build_auto_report_path(month_key)
+        try:
+            import openpyxl
+            workbook = openpyxl.load_workbook(workbook_path, read_only=True, data_only=True)
+            sheet = workbook["Summary"]
+            reports = {}
+            rows = list(sheet.iter_rows(values_only=True))
+            index = 0
+            while index < len(rows):
+                section = rows[index][0] if rows[index] else None
+                metric = "CPU" if section == "CPU Usage" else "ASP" if section == "ASP Usage" else None
+                if metric is None or index + 1 >= len(rows):
+                    index += 1
+                    continue
+                headers = list(rows[index + 1])
+                days = []
+                for header in headers[1:-1]:
+                    try:
+                        days.append(int(header))
+                    except (TypeError, ValueError):
+                        break
+                report_rows = []
+                index += 2
+                while index < len(rows) and rows[index] and rows[index][0]:
+                    values = rows[index]
+                    day_map = {
+                        day: round(float(value) * 100.0, 2)
+                        for day, value in zip(days, values[1:])
+                        if isinstance(value, (int, float)) and not isinstance(value, bool)
+                    }
+                    avg_value = values[len(days) + 1] if len(values) > len(days) + 1 else 0.0
+                    report_rows.append({
+                        "server": str(values[0]),
+                        "metric": metric,
+                        "day_map": day_map,
+                        "month_avg": round(float(avg_value) * 100.0, 2) if isinstance(avg_value, (int, float)) else 0.0,
+                    })
+                    index += 1
+                reports[metric] = {"month": month_key, "days": days, "rows": report_rows}
+            workbook.close()
+            if "CPU" in reports and "ASP" in reports:
+                return {"month": month_key, "cpu": reports["CPU"], "asp": reports["ASP"]}
+        except (ImportError, OSError, KeyError, TypeError, ValueError):
+            pass
+        return None
+
     def _show_generation_loading(self):
         if hasattr(self, "loading_overlay"):
             self.loading_overlay.setGeometry(self.rect())
@@ -497,6 +578,9 @@ class MonthlyReportWidget(QWidget):
 
     def _save_monthly_report_to_file(self, month_key, file_path, silent=False):
         """Write the report workbook or CSV without prompting the user."""
+        snapshot_cpu_report = self._build_month_report(month_key, "day", metric_filter="CPU")
+        snapshot_asp_report = self._build_month_report(month_key, "day", metric_filter="ASP")
+        self._save_report_snapshot(month_key, snapshot_cpu_report, snapshot_asp_report)
         cpu_report = self._build_month_report(month_key, self.cpu_chart.mode, metric_filter="CPU")
         asp_report = self._build_month_report(month_key, self.asp_chart.mode, metric_filter="ASP")
         cpu_report = self._filter_report_servers(cpu_report)
@@ -1237,6 +1321,17 @@ class MonthlyReportWidget(QWidget):
         for date_key in merged_store.keys():
             if isinstance(date_key, str) and len(date_key) >= 7 and date_key[4] == "-":
                 months.add(date_key[:7])
+        for root_dir in get_all_logs_dirs():
+            if not os.path.isdir(root_dir):
+                continue
+            for current_root, _, files in os.walk(root_dir):
+                for file_name in files:
+                    match = re.fullmatch(r"IBM_i_Monthly_Report_(\d{4}-\d{2})\.json", file_name)
+                    if match:
+                        months.add(match.group(1))
+                    match = re.fullmatch(r"IBM_i_Monthly_Report_(\d{4}-\d{2})\.xlsx", file_name)
+                    if match:
+                        months.add(match.group(1))
         if not months:
             months.add(datetime.now().strftime("%Y-%m"))
         options = sorted(months, reverse=True)
@@ -1434,6 +1529,57 @@ class MonthlyReportWidget(QWidget):
                 value = rec.get(metric_name)
                 if isinstance(value, (int, float)) and not isinstance(value, bool):
                     day_values[server][metric_name][day_num].append(float(value))
+
+        if not day_values:
+            snapshot = self._load_report_snapshot(month_key)
+            if snapshot is not None:
+                if metric_filter == "CPU":
+                    report = snapshot["cpu"]
+                elif metric_filter == "ASP":
+                    report = snapshot["asp"]
+                else:
+                    report = {
+                        "month": month_key,
+                        "days": snapshot["cpu"].get("days", []),
+                        "rows": [*snapshot["cpu"].get("rows", []), *snapshot["asp"].get("rows", [])],
+                    }
+                rows = []
+                for source_row in report.get("rows", []):
+                    if not isinstance(source_row, dict):
+                        continue
+                    daily_map = {}
+                    for day_key, value in (source_row.get("day_map", {}) or {}).items():
+                        try:
+                            daily_map[int(day_key)] = float(value)
+                        except (TypeError, ValueError):
+                            continue
+                    if not daily_map:
+                        continue
+                    if mode == "week":
+                        bucket_map = defaultdict(list)
+                        for day_num, value in daily_map.items():
+                            bucket_map[(day_num - 1) // 7 + 1].append(value)
+                        value_map = {
+                            bucket: round(sum(values) / len(values), 2)
+                            for bucket, values in bucket_map.items()
+                        }
+                    elif mode == "month":
+                        value_map = {1: round(sum(daily_map.values()) / len(daily_map), 2)}
+                    else:
+                        value_map = daily_map
+                    rows.append({
+                        "server": source_row.get("server"),
+                        "metric": source_row.get("metric"),
+                        "day_map": value_map,
+                        "month_avg": round(sum(value_map.values()) / len(value_map), 2),
+                    })
+                if mode == "week":
+                    periods = list(range(1, (last_day + 6) // 7 + 1))
+                elif mode == "month":
+                    periods = [1]
+                else:
+                    periods = list(range(1, last_day + 1))
+                return {"month": month_key, "days": periods, "rows": rows}
 
         metrics_to_process = (
             [("cpu", "CPU")] if metric_filter == "CPU" else 

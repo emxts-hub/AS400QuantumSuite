@@ -1,12 +1,13 @@
 # ui/main_window.py
 import sys
 import os
+import json
 import math
 import threading
 import time
 from typing import cast
 from collections import deque
-from config import APP_VERSION, APP_NAME, load_email_alerts, load_login_credentials, get_ibmi_password, save_ibmi_password
+from config import APP_VERSION, APP_NAME
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -17,17 +18,33 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton,
     QScrollArea, QFrame, QGridLayout, QProgressBar,
     QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QApplication, QSizePolicy, QComboBox, QCheckBox, QStackedWidget, QPlainTextEdit, QTabWidget, QMessageBox
+    QApplication, QSizePolicy, QComboBox, QCheckBox, QStackedWidget, QPlainTextEdit, QTabWidget, QMessageBox, QFileDialog
 )
 
-from worker import SingleLparRunnable, has_vpn_ip, reset_asp_alert_sound, stop_asp_alert_sound
+from worker import (
+    SingleLparRunnable,
+    has_vpn_ip,
+    reset_asp_alert_sound,
+    stop_all_server_status_alerts,
+    stop_asp_alert_sound,
+)
 from ui.log_viewer import LogViewerWidget
 from ui.monthly_report import MonthlyReportWidget
 from ui.backup_manage import BackupManagementWidget
 from ui.widgets import RefreshStatusWidget, StatusBadgesWidget, SubsystemGridWidget, ThemeLoadingDialog
 from dialogs import ActiveJobsDialog, LparSettingsDialog, TestEmailThread
 from version_worker import VersionCheckWorker
-from config import SERVER_CONFIGS, EXPECTED_SUBSYSTEMS, EXPECTED_PORTS, save_all_configs, get_resource_path, get_email_password
+from config import SERVER_CONFIGS, EXPECTED_SUBSYSTEMS, EXPECTED_PORTS, ONEDRIVE_SHAREPOINT_PATH, get_resource_path, get_config_path
+from ui.setcreds import (
+    get_email_password,
+    get_ibmi_password,
+    load_email_alerts,
+    load_login_credentials,
+    load_settings_backup,
+    save_all_configs,
+    save_ibmi_password,
+    save_settings_backup,
+)
 from ui.styles import DARK_STYLESHEET, LIGHT_STYLESHEET
 
 
@@ -1126,7 +1143,7 @@ class AppInfoDialog(QDialog):
             " font-weight: bold; letter-spacing: 0.5px;'>AS400 QUANTUM SUITE</h2>"
             "<div style='color: #cbd5e1; font-size: 12px; margin-bottom: 12px;'>"
             "<b>System:</b> IBM i (AS/400) Real-time Monitoring & Telemetry<br>"
-            "<b>Stack:</b> Python | PyQt6 | DB2 ODBC | Firebase<br>"
+            "<b>Stack:</b> Python | PyQt6 | DB2 ODBC | Local JSON storage<br>"
             f"<b>Version:</b> {version_str}"
             "</div>"
             "<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'>"
@@ -1253,8 +1270,7 @@ class IBMiDashboard(QMainWindow):
         self.nav_button_labels = {}
         nav_items = [
             ("Live Monitor", "monitor", "monitor.png"),
-            ("Log Viewer", "log_viewer", "logs.png"),
-            ("Monthly ASP/CPU Report", "monthly_report", "monthly.png"),
+            ("Logs && Analytics", "log_viewer", "logs.png"),
             ("Backup Management", "backup_management", "backup.png"),
             ("Settings && Credentials", "settings", "settings.png")
         ]
@@ -1284,10 +1300,18 @@ class IBMiDashboard(QMainWindow):
 
         self.log_viewer_widget = LogViewerWidget()
         self.log_viewer_widget.set_theme(self.is_dark_theme)
-        self.content_stack.addWidget(self.log_viewer_widget)
+        self.logs_analytics_widget = QWidget()
+        logs_analytics_layout = QVBoxLayout(self.logs_analytics_widget)
+        logs_analytics_layout.setContentsMargins(0, 0, 0, 0)
+        self.logs_analytics_tabs = QTabWidget()
+        self.logs_analytics_tabs.addTab(self.log_viewer_widget, "System Logs")
+        logs_analytics_layout.addWidget(self.logs_analytics_tabs)
+        self.content_stack.addWidget(self.logs_analytics_widget)
 
         self.settings_widget = QWidget()
         self._init_settings_page()
+        self._settings_saved_snapshot = self._capture_settings_snapshot()
+        self._update_settings_save_state()
         self.content_stack.addWidget(self.settings_widget)
 
         self.backup_management_widget = BackupManagementWidget(
@@ -1302,7 +1326,7 @@ class IBMiDashboard(QMainWindow):
         self.log_viewer_widget.monthly_report_widget = self.monthly_report_widget
         setattr(self.monthly_report_widget, "parent_log_viewer", self.log_viewer_widget)
         self.monthly_report_widget.set_theme(self.is_dark_theme)
-        self.content_stack.addWidget(self.monthly_report_widget)
+        self.logs_analytics_tabs.addTab(self.monthly_report_widget, "Monthly ASP/CPU")
 
         self.central_layout.addWidget(self.sidebar)
         self.central_layout.addWidget(self.content_stack)
@@ -1339,10 +1363,9 @@ class IBMiDashboard(QMainWindow):
         current_widget = self.content_stack.currentWidget()
         widget_map = {
             "monitor": self.live_monitor_widget,
-            "log_viewer": self.log_viewer_widget,
+            "log_viewer": self.logs_analytics_widget,
             "backup_management": self.backup_management_widget,
-            "monthly_report": self.monthly_report_widget,
-            "settings": self.live_monitor_widget,
+            "settings": self.settings_widget,
         }
         for key, widget in widget_map.items():
             if widget is current_widget:
@@ -1355,15 +1378,99 @@ class IBMiDashboard(QMainWindow):
             "log_viewer": 1,
             "settings": 2,
             "backup_management": 3,
-            "monthly_report": 4,
         }
+        if page_key != "settings" and self._current_nav_key() == "settings":
+            if not self._confirm_leave_settings():
+                return
         if page_key in mapping:
             self.content_stack.setCurrentIndex(mapping[page_key])
             for key, button in self.nav_buttons.items():
                 button.setChecked(key == page_key)
             self._update_nav_button_styles(page_key)
+            if page_key == "settings" and self.is_monitoring:
+                self.status_label.setText("Status: Stop monitoring to edit settings.")
+                self.status_label.setStyleSheet("color: #b45309; font-weight: bold; font-size: 11px; background-color: transparent;")
             if page_key == "backup_management" and self.credentials_validated:
                 self.backup_management_widget.start_hourly_refresh()
+
+    def _capture_settings_snapshot(self):
+        def table_values(table):
+            return [
+                tuple(
+                    table.item(row, column).text() if table.item(row, column) else ""
+                    for column in range(table.columnCount())
+                )
+                for row in range(table.rowCount())
+            ]
+
+        return {
+            "username": self.user_input.text(),
+            "password": self.pass_input.text(),
+            "remember": self.remember_creds_checkbox.isChecked(),
+            "lpar_rows": table_values(self.lpar_table),
+            "logs_root": self.logs_root_input.text(),
+            "smtp_enabled": self.smtp_enabled.isChecked(),
+            "smtp_server": self.smtp_server_input.text(),
+            "smtp_port": self.smtp_port_input.text(),
+            "smtp_tls": self.smtp_tls_checkbox.isChecked(),
+            "smtp_username": self.smtp_username_input.text(),
+            "smtp_password": self.smtp_password_input.text(),
+            "smtp_from": self.smtp_from_input.text(),
+            "smtp_to": self.smtp_to_input.text(),
+            "smtp_threshold": self.smtp_threshold_input.text(),
+            "smtp_cooldown": self.smtp_cooldown_input.text(),
+            "refresh_interval": self.refresh_interval_combo.currentIndex(),
+            "log_dedupe": self.log_dedupe_combo.currentIndex(),
+        }
+
+    def _restore_settings_snapshot(self):
+        snapshot = self._settings_saved_snapshot
+        self.user_input.setText(snapshot["username"])
+        self.pass_input.setText(snapshot["password"])
+        self.remember_creds_checkbox.setChecked(snapshot["remember"])
+        self.logs_root_input.setText(snapshot["logs_root"])
+        self.smtp_enabled.setChecked(snapshot["smtp_enabled"])
+        self.smtp_server_input.setText(snapshot["smtp_server"])
+        self.smtp_port_input.setText(snapshot["smtp_port"])
+        self.smtp_tls_checkbox.setChecked(snapshot["smtp_tls"])
+        self.smtp_username_input.setText(snapshot["smtp_username"])
+        self.smtp_password_input.setText(snapshot["smtp_password"])
+        self.smtp_from_input.setText(snapshot["smtp_from"])
+        self.smtp_to_input.setText(snapshot["smtp_to"])
+        self.smtp_threshold_input.setText(snapshot["smtp_threshold"])
+        self.smtp_cooldown_input.setText(snapshot["smtp_cooldown"])
+        self.refresh_interval_combo.setCurrentIndex(snapshot["refresh_interval"])
+        self.log_dedupe_combo.setCurrentIndex(snapshot["log_dedupe"])
+
+        self.lpar_table.setRowCount(0)
+        for row_values in snapshot["lpar_rows"]:
+            row = self.lpar_table.rowCount()
+            self.lpar_table.insertRow(row)
+            for column, value in enumerate(row_values):
+                self.lpar_table.setItem(row, column, QTableWidgetItem(value))
+
+    def _settings_have_unsaved_changes(self):
+        return self._capture_settings_snapshot() != self._settings_saved_snapshot
+
+    def _confirm_leave_settings(self):
+        if not self._settings_have_unsaved_changes():
+            return True
+
+        choice = QMessageBox.question(
+            self,
+            "Unsaved Settings",
+            "You have unsaved Settings changes. Save them before leaving?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard,
+            QMessageBox.StandardButton.Save,
+        )
+        if choice == QMessageBox.StandardButton.Save:
+            self.save_settings_page()
+            return not self._settings_have_unsaved_changes()
+        if choice == QMessageBox.StandardButton.Discard:
+            self._restore_settings_snapshot()
+            return True
+        return False
 
     def toggle_sidebar(self):
         self.sidebar_collapsed = not self.sidebar_collapsed
@@ -1388,9 +1495,8 @@ class IBMiDashboard(QMainWindow):
 
         nav_items = {
             "monitor": ("Live Monitor", "monitor.png"),
-            "log_viewer": ("Log Viewer", "logs.png"),
+            "log_viewer": ("Logs && Analytics", "logs.png"),
             "backup_management": ("Backup Management", "backup.png"),
-            "monthly_report": ("Monthly ASP/CPU Report", "monthly.png"),
             "settings": ("Settings && Credentials", "settings.png")
         }
 
@@ -1466,7 +1572,7 @@ class IBMiDashboard(QMainWindow):
         layout.setSpacing(12)
 
         settings_header = QHBoxLayout()
-        title = QLabel("IBM i Access Credentials")
+        title = QLabel("Settings & Credential configuration")
         title.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
         title.setStyleSheet("color: #1f2937; background-color: transparent;")
         settings_header.addWidget(title)
@@ -1478,6 +1584,15 @@ class IBMiDashboard(QMainWindow):
         self.theme_btn.setToolTip("Switch between dark and light themes")
         self.theme_btn.clicked.connect(self.toggle_theme)
         settings_header.addWidget(self.theme_btn)
+
+        self.settings_lock_label = QLabel("Stop monitoring to edit settings")
+        self.settings_lock_label.setStyleSheet(
+            "color: #b45309; background-color: #fef3c7; border: 1px solid #f59e0b; "
+            "border-radius: 6px; padding: 6px 10px; font-weight: bold;"
+        )
+        self.settings_lock_label.setVisible(False)
+        settings_header.addWidget(self.settings_lock_label)
+
         layout.addLayout(settings_header)
 
         line = QFrame()
@@ -1542,7 +1657,7 @@ class IBMiDashboard(QMainWindow):
         )
         form_row.addWidget(self.toggle_btn)
 
-        self.settings_btn = QPushButton("Save & Apply")
+        self.settings_btn = QPushButton("Save && Apply")
         self.settings_btn.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         self.settings_btn.setFixedHeight(42)
         self.settings_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -1561,9 +1676,13 @@ class IBMiDashboard(QMainWindow):
         settings_sections_layout.setContentsMargins(0, 0, 0, 0)
         settings_sections_layout.setSpacing(8)
 
-        credential_tab = QGroupBox("Credentials")
+        auth_mail_row = QHBoxLayout()
+        auth_mail_row.setSpacing(8)
+
+        credential_tab = QGroupBox("Credential Validation")
         credential_layout = QVBoxLayout(credential_tab)
         credential_layout.setContentsMargins(10, 8, 10, 8)
+        credential_tab.setMinimumWidth(360)
 
         self.cred_log = QPlainTextEdit()
         self.cred_log.setReadOnly(True)
@@ -1580,7 +1699,7 @@ class IBMiDashboard(QMainWindow):
         )
         self.cred_log.setPlainText("Credential validation log will appear here...")
         credential_layout.addWidget(self.cred_log)
-        settings_sections_layout.addWidget(credential_tab)
+        auth_mail_row.addWidget(credential_tab, stretch=1)
 
         lpar_tab = QGroupBox("LPAR Configuration")
         lpar_layout = QVBoxLayout(lpar_tab)
@@ -1589,8 +1708,8 @@ class IBMiDashboard(QMainWindow):
         self.lpar_table = QTableWidget()
         self.lpar_table.setColumnCount(6)
         self.lpar_table.setHorizontalHeaderLabels([
-            "IP / Hostname", "Database Name", "Expected Subsystems",
-            "Monitored Ports (Port:Name)", "Daily Backup Name", "Journal Backup Name"
+            "IP / Hostname", "Database Name", "Daily Backup Name",
+            "Journal Backup Name", "Expected Subsystems", "Monitored Ports (Port:Name)"
         ])
         self.lpar_table.setAlternatingRowColors(True)
         self.lpar_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -1602,19 +1721,31 @@ class IBMiDashboard(QMainWindow):
         lpar_layout.addWidget(self.lpar_table)
 
         lpar_buttons = QHBoxLayout()
-        add_lpar_btn = QPushButton("+ Add LPAR")
-        add_lpar_btn.clicked.connect(self._add_lpar_row)
-        remove_lpar_btn = QPushButton("Remove Selected")
-        remove_lpar_btn.clicked.connect(self._remove_lpar_row)
-        lpar_buttons.addWidget(add_lpar_btn)
-        lpar_buttons.addWidget(remove_lpar_btn)
+        self.add_lpar_btn = QPushButton("+ Add LPAR")
+        self.add_lpar_btn.clicked.connect(self._add_lpar_row)
+        self.remove_lpar_btn = QPushButton("Remove Selected")
+        self.remove_lpar_btn.clicked.connect(self._remove_lpar_row)
+        lpar_buttons.addWidget(self.add_lpar_btn)
+        lpar_buttons.addWidget(self.remove_lpar_btn)
         lpar_buttons.addStretch()
         lpar_layout.addLayout(lpar_buttons)
-        settings_sections_layout.addWidget(lpar_tab, stretch=1)
+        lpar_tab.setMinimumHeight(250)
+
+        storage_tab = QGroupBox("Log Storage")
+        storage_layout = QHBoxLayout(storage_tab)
+        storage_layout.setContentsMargins(10, 8, 10, 8)
+        storage_layout.addWidget(QLabel("Root folder:"))
+        self.logs_root_input = QLineEdit(ONEDRIVE_SHAREPOINT_PATH)
+        self.logs_root_input.setPlaceholderText("Choose a folder for monthly logs")
+        storage_layout.addWidget(self.logs_root_input, stretch=1)
+        self.browse_logs_btn = QPushButton("Browse...")
+        self.browse_logs_btn.clicked.connect(self._browse_logs_root)
+        storage_layout.addWidget(self.browse_logs_btn)
 
         smtp_tab = QGroupBox("SMTP / Mail Configuration")
         smtp_layout = QVBoxLayout(smtp_tab)
         smtp_layout.setContentsMargins(10, 8, 10, 8)
+        smtp_tab.setMinimumWidth(520)
         email_cfg = load_email_alerts()
 
         self.smtp_enabled = QCheckBox("Enable email alerts")
@@ -1693,11 +1824,193 @@ class IBMiDashboard(QMainWindow):
         smtp_actions_row.addWidget(self.test_email_btn)
         smtp_layout.addLayout(smtp_actions_row)
         smtp_layout.addStretch()
-        settings_sections_layout.addWidget(smtp_tab)
+        auth_mail_row.addWidget(smtp_tab, stretch=2)
+        settings_sections_layout.addLayout(auth_mail_row)
+        settings_sections_layout.addWidget(lpar_tab, stretch=1)
+        settings_sections_layout.addWidget(storage_tab)
+
+        system_tab = QGroupBox("System")
+        system_layout = QHBoxLayout(system_tab)
+        system_layout.setContentsMargins(10, 8, 10, 8)
+        system_layout.addWidget(QLabel("Backup or restore a configuration"))
+        system_layout.addStretch()
+
+        self.backup_settings_btn = QPushButton("Backup")
+        self.backup_settings_btn.setFixedHeight(35)
+        self.backup_settings_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.backup_settings_btn.clicked.connect(self.backup_settings)
+        system_layout.addWidget(self.backup_settings_btn)
+
+        self.restore_settings_btn = QPushButton("Restore")
+        self.restore_settings_btn.setFixedHeight(35)
+        self.restore_settings_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.restore_settings_btn.clicked.connect(self.restore_settings)
+        system_layout.addWidget(self.restore_settings_btn)
+        settings_sections_layout.addWidget(system_tab)
         layout.addWidget(self.settings_tab_widget)
+
+        self._settings_editable_widgets = [
+            self.backup_settings_btn,
+            self.restore_settings_btn,
+            self.user_input,
+            self.pass_input,
+            self.remember_creds_checkbox,
+            self.toggle_btn,
+            self.settings_btn,
+            self.lpar_table,
+            self.add_lpar_btn,
+            self.remove_lpar_btn,
+            self.logs_root_input,
+            self.browse_logs_btn,
+            self.smtp_enabled,
+            self.smtp_server_input,
+            self.smtp_port_input,
+            self.smtp_tls_checkbox,
+            self.smtp_username_input,
+            self.smtp_password_input,
+            self.smtp_from_input,
+            self.smtp_to_input,
+            self.smtp_threshold_input,
+            self.smtp_cooldown_input,
+            self.refresh_interval_combo,
+            self.log_dedupe_combo,
+            self.test_email_btn,
+        ]
+        for widget in self._settings_editable_widgets:
+            if isinstance(widget, QLineEdit):
+                widget.textChanged.connect(self._update_settings_save_state)
+            elif isinstance(widget, QCheckBox):
+                widget.stateChanged.connect(self._update_settings_save_state)
+            elif isinstance(widget, QComboBox):
+                widget.currentIndexChanged.connect(self._update_settings_save_state)
+        self.lpar_table.itemChanged.connect(self._update_settings_save_state)
+        self._set_settings_editable(True)
+
+    def _set_settings_editable(self, editable):
+        for widget in self._settings_editable_widgets:
+            widget.setEnabled(editable)
+        self.settings_lock_label.setVisible(not editable)
+        self.settings_btn.setToolTip(
+            "Save and apply settings" if editable else "Stop monitoring to edit settings"
+        )
+        if editable:
+            self.settings_btn.setStyleSheet(
+                "QPushButton { background-color: #16a34a; color: white; border: none; border-radius: 8px; padding: 0 18px; }"
+                "QPushButton:hover { background-color: #15803d; }"
+                "QPushButton:disabled { background-color: #94a3b8; color: #e2e8f0; border: none; }"
+            )
+        else:
+            self.settings_btn.setStyleSheet(
+                "QPushButton { background-color: #b45309; color: #fff7ed; border: 1px solid #f59e0b; "
+                "border-radius: 8px; padding: 0 18px; font-weight: bold; }"
+                "QPushButton:disabled { background-color: #b45309; color: #fff7ed; border: 1px solid #f59e0b; }"
+            )
+            self.status_label.setText("Status: Stop monitoring to edit settings.")
+            self.status_label.setStyleSheet("color: #b45309; font-weight: bold; font-size: 11px; background-color: transparent;")
+        self._update_settings_save_state()
+
+    def _update_settings_save_state(self, *_args):
+        if not hasattr(self, "_settings_saved_snapshot"):
+            return
+        self.settings_btn.setEnabled(
+            not self.is_monitoring and self._settings_have_unsaved_changes()
+        )
 
     def _backup_credentials(self):
         return self.user_input.text().strip(), self.pass_input.text()
+
+    def _browse_logs_root(self):
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "Choose log storage folder",
+            self.logs_root_input.text().strip() or os.path.expanduser("~"),
+        )
+        if selected:
+            self.logs_root_input.setText(selected)
+
+    def backup_settings(self):
+        target_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Backup settings and credentials",
+            "AS400 Quantum Suite.conf",
+            "Configuration files (*.conf);;All files (*)",
+        )
+        if not target_path:
+            return
+        if not target_path.lower().endswith(".conf"):
+            target_path += ".conf"
+
+        try:
+            config_path = get_config_path()
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as file:
+                    payload: dict[str, object] = json.load(file)
+            else:
+                payload = {
+                    "SERVER_CONFIGS": dict(self.active_server_configs),
+                    "EXPECTED_SUBSYSTEMS": dict(EXPECTED_SUBSYSTEMS),
+                    "EXPECTED_PORTS": dict(EXPECTED_PORTS),
+                    "EMAIL_ALERTS": {},
+                }
+            email_alerts = dict(cast(dict, payload.get("EMAIL_ALERTS", {})))
+            email_alerts["password"] = self.smtp_password_input.text() or get_email_password(
+                self.smtp_username_input.text().strip()
+            )
+            payload["EMAIL_ALERTS"] = email_alerts
+            payload["LOGIN_CREDENTIALS"] = {
+                "remember": self.remember_creds_checkbox.isChecked(),
+                "username": self.user_input.text().strip(),
+                "password": self.pass_input.text(),
+            }
+            payload["LOGS_ROOT"] = self.logs_root_input.text().strip()
+            save_settings_backup(target_path, payload)
+        except (OSError, TypeError, ValueError) as exc:
+            QMessageBox.critical(self, "Backup Failed", f"Could not create the settings backup:\n{exc}")
+            return
+        QMessageBox.information(self, "Backup Created", f"Settings backup created:\n{target_path}")
+
+    def restore_settings(self):
+        source_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Restore settings and credentials",
+            os.path.expanduser("~"),
+            "Configuration files (*.conf);;All files (*)",
+        )
+        if not source_path:
+            return
+        try:
+            payload = load_settings_backup(source_path)
+            email_alerts = payload["EMAIL_ALERTS"]
+            login_credentials = payload["LOGIN_CREDENTIALS"]
+            self.user_input.setText(str(login_credentials.get("username", "")))
+            self.pass_input.setText(str(login_credentials.get("password", "")))
+            self.remember_creds_checkbox.setChecked(bool(login_credentials.get("remember", False)))
+            self.logs_root_input.setText(str(payload.get("LOGS_ROOT", ONEDRIVE_SHAREPOINT_PATH)))
+            self.smtp_enabled.setChecked(bool(email_alerts.get("enabled", False)))
+            self.smtp_server_input.setText(str(email_alerts.get("smtp_server", "")))
+            self.smtp_port_input.setText(str(email_alerts.get("port", 587)))
+            self.smtp_tls_checkbox.setChecked(bool(email_alerts.get("use_tls", True)))
+            self.smtp_username_input.setText(str(email_alerts.get("username", "")))
+            self.smtp_password_input.setText(str(email_alerts.get("password", "")))
+            self.smtp_from_input.setText(str(email_alerts.get("from_address", "")))
+            self.smtp_to_input.setText(", ".join(email_alerts.get("to_addresses", [])))
+            self.smtp_threshold_input.setText(str(email_alerts.get("threshold_percent", 40)))
+            self.smtp_cooldown_input.setText(str(email_alerts.get("cooldown_minutes", 10)))
+            self.refresh_interval_combo.setCurrentIndex({0: 0, 3000: 1, 5000: 2, 10000: 3}.get(int(email_alerts.get("refresh_interval_ms", 0) or 0), 0))
+            self.log_dedupe_combo.setCurrentIndex({0: 0, 30: 1, 60: 2, 300: 3}.get(int(email_alerts.get("log_dedupe_seconds", 60) or 60), 2))
+            restored_subsystems = payload["EXPECTED_SUBSYSTEMS"]
+            restored_ports = payload["EXPECTED_PORTS"]
+            self.active_server_configs.clear()
+            self.active_server_configs.update(payload["SERVER_CONFIGS"])
+            EXPECTED_SUBSYSTEMS.clear()
+            EXPECTED_SUBSYSTEMS.update(restored_subsystems)
+            EXPECTED_PORTS.clear()
+            EXPECTED_PORTS.update(restored_ports)
+            self._populate_lpar_table()
+            self._settings_saved_snapshot = self._capture_settings_snapshot()
+            self.save_settings_page()
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            QMessageBox.critical(self, "Restore Failed", f"Could not restore the settings backup:\n{exc}")
 
     def _set_backup_status(self, message):
         if hasattr(self, "status_label"):
@@ -1717,29 +2030,31 @@ class IBMiDashboard(QMainWindow):
                     port_parts.append(f"{entry.get('port')}:{entry.get('name')}")
                 else:
                     port_parts.append(str(entry))
-            self.lpar_table.setItem(row, 0, QTableWidgetItem(host))
-            self.lpar_table.setItem(row, 1, QTableWidgetItem(db))
-            self.lpar_table.setItem(row, 2, QTableWidgetItem(subsystems_str))
-            self.lpar_table.setItem(row, 3, QTableWidgetItem(", ".join(port_parts)))
             daily_name = cfg.get("daily_backup_name", "DAILYSWA") if isinstance(cfg, dict) else "DAILYSWA"
             journal_name = cfg.get("journal_backup_name", "DAILYSWA") if isinstance(cfg, dict) else "DAILYSWA"
-            self.lpar_table.setItem(row, 4, QTableWidgetItem(str(daily_name or "DAILYSWA")))
-            self.lpar_table.setItem(row, 5, QTableWidgetItem(str(journal_name or "DAILYSWA")))
+            self.lpar_table.setItem(row, 0, QTableWidgetItem(host))
+            self.lpar_table.setItem(row, 1, QTableWidgetItem(db))
+            self.lpar_table.setItem(row, 2, QTableWidgetItem(str(daily_name or "DAILYSWA")))
+            self.lpar_table.setItem(row, 3, QTableWidgetItem(str(journal_name or "DAILYSWA")))
+            self.lpar_table.setItem(row, 4, QTableWidgetItem(subsystems_str))
+            self.lpar_table.setItem(row, 5, QTableWidgetItem(", ".join(port_parts)))
 
     def _add_lpar_row(self):
         row = self.lpar_table.rowCount()
         self.lpar_table.insertRow(row)
         self.lpar_table.setItem(row, 0, QTableWidgetItem("192.168.1.1"))
         self.lpar_table.setItem(row, 1, QTableWidgetItem("*LOCAL"))
-        self.lpar_table.setItem(row, 2, QTableWidgetItem("QINTER, QBATCH, QSYSWRK"))
-        self.lpar_table.setItem(row, 3, QTableWidgetItem("21:FTP, 22:SSH"))
-        self.lpar_table.setItem(row, 4, QTableWidgetItem("DAILYSWA"))
-        self.lpar_table.setItem(row, 5, QTableWidgetItem("DAILYSWA"))
+        self.lpar_table.setItem(row, 2, QTableWidgetItem("DAILYSWA"))
+        self.lpar_table.setItem(row, 3, QTableWidgetItem("DAILYSWA"))
+        self.lpar_table.setItem(row, 4, QTableWidgetItem("QINTER, QBATCH, QSYSWRK"))
+        self.lpar_table.setItem(row, 5, QTableWidgetItem("21:FTP, 22:SSH"))
+        self._update_settings_save_state()
 
     def _remove_lpar_row(self):
         row = self.lpar_table.currentRow()
         if row >= 0:
             self.lpar_table.removeRow(row)
+            self._update_settings_save_state()
 
     def send_test_email(self):
         smtp_server = self.smtp_server_input.text().strip()
@@ -1786,6 +2101,11 @@ class IBMiDashboard(QMainWindow):
             QMessageBox.critical(self, "Test Email Failed", message)
 
     def save_settings_page(self):
+        if self.is_monitoring:
+            self.status_label.setText("Status: Stop monitoring to edit settings.")
+            self.status_label.setStyleSheet("color: #b45309; font-weight: bold; font-size: 11px; background-color: transparent;")
+            return
+
         new_configs = {}
         new_subsystems = {}
         new_ports = {}
@@ -1795,10 +2115,10 @@ class IBMiDashboard(QMainWindow):
                 continue
             host = host_item.text().strip()
             db = self.lpar_table.item(row, 1).text().strip() if self.lpar_table.item(row, 1) else "*LOCAL"
-            subsystems = self.lpar_table.item(row, 2).text().strip() if self.lpar_table.item(row, 2) else ""
-            ports = self.lpar_table.item(row, 3).text().strip() if self.lpar_table.item(row, 3) else ""
-            daily_backup_name = self.lpar_table.item(row, 4).text().strip().upper() if self.lpar_table.item(row, 4) else "DAILYSWA"
-            journal_backup_name = self.lpar_table.item(row, 5).text().strip().upper() if self.lpar_table.item(row, 5) else "DAILYSWA"
+            daily_backup_name = self.lpar_table.item(row, 2).text().strip().upper() if self.lpar_table.item(row, 2) else "DAILYSWA"
+            journal_backup_name = self.lpar_table.item(row, 3).text().strip().upper() if self.lpar_table.item(row, 3) else "DAILYSWA"
+            subsystems = self.lpar_table.item(row, 4).text().strip() if self.lpar_table.item(row, 4) else ""
+            ports = self.lpar_table.item(row, 5).text().strip() if self.lpar_table.item(row, 5) else ""
             new_configs[host.upper()] = {
                 "host": host,
                 "db": db,
@@ -1865,6 +2185,12 @@ class IBMiDashboard(QMainWindow):
             self.status_label.setStyleSheet("color: #f85149; font-weight: bold; font-size: 11px; background-color: transparent;")
             return
 
+        logs_root = self.logs_root_input.text().strip()
+        if not logs_root:
+            self.status_label.setText("Error: Choose a log storage folder before saving.")
+            self.status_label.setStyleSheet("color: #f85149; font-weight: bold; font-size: 11px; background-color: transparent;")
+            return
+
         remember_credentials = self.remember_creds_checkbox.isChecked()
         login_username = self.user_input.text().strip()
         login_password = self.pass_input.text()
@@ -1878,6 +2204,7 @@ class IBMiDashboard(QMainWindow):
             new_ports,
             email_alerts=email_alerts,
             login_credentials={"remember": remember_credentials, "username": login_username},
+            log_root=logs_root,
         ):
             self.status_label.setText("Error: Save failed. Please try again.")
             self.status_label.setStyleSheet("color: #f85149; font-weight: bold; font-size: 11px; background-color: transparent;")
@@ -1892,6 +2219,8 @@ class IBMiDashboard(QMainWindow):
         self.rebuild_server_cards()
         self.status_label.setText("Status: Settings saved and applied.")
         self.status_label.setStyleSheet("color: #2ea043; font-weight: bold; font-size: 11px; background-color: transparent;")
+        self._settings_saved_snapshot = self._capture_settings_snapshot()
+        self._update_settings_save_state()
         QMessageBox.information(self, "Settings Applied", "Settings were saved and applied successfully.")
 
     def _update_start_controls_state(self):
@@ -2669,9 +2998,7 @@ class IBMiDashboard(QMainWindow):
         self.is_monitoring = True
         self.auto_refresh_paused = False
         reset_asp_alert_sound()
-        self.user_input.setEnabled(False)
-        self.pass_input.setEnabled(False)
-        self.settings_btn.setEnabled(False)
+        self._set_settings_editable(False)
         self.retry_status_label.setVisible(False)
         
         self.update_toggle_button_style()
@@ -2690,6 +3017,7 @@ class IBMiDashboard(QMainWindow):
         self._refresh_in_progress = False
         self._refresh_queued = False
         stop_asp_alert_sound()
+        stop_all_server_status_alerts()
         for timer in self.server_refresh_timers.values():
             timer.stop()
         self.server_refresh_timers.clear()
@@ -2706,9 +3034,7 @@ class IBMiDashboard(QMainWindow):
             total_lpars=len(self.active_server_configs),
         )
 
-        self.user_input.setEnabled(True)
-        self.pass_input.setEnabled(True)
-        self.settings_btn.setEnabled(True)
+        self._set_settings_editable(True)
         
         self.update_toggle_button_style()
         self._hide_sync_loading()
@@ -2941,7 +3267,7 @@ class IBMiDashboard(QMainWindow):
 
         now = time.monotonic()
         should_refresh_history = (
-            self.content_stack.currentWidget() is self.log_viewer_widget
+            self.content_stack.currentWidget() is self.logs_analytics_widget
             or (now - self.last_log_history_refresh) >= 30.0
         )
         if should_refresh_history:

@@ -19,9 +19,8 @@ from config import (
     SERVER_CONFIGS,
     EXPECTED_SUBSYSTEMS,
     EXPECTED_PORTS,
-    save_all_configs,
-    load_email_alerts,
 )
+from ui.setcreds import load_email_alerts, save_all_configs
 
 
 class ActiveJobTableItem(QTableWidgetItem):
