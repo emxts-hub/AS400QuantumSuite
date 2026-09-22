@@ -3,7 +3,7 @@ from urllib.parse import urlparse
 from PyQt6.QtCore import QThread, pyqtSignal
 from config import APP_VERSION, VERSION_CHECK_URL, parse_version
 
-_DEFAULT_UPDATE_URL = "https://github.com/emxts-hub/monitoringtool/releases/latest"
+_DEFAULT_UPDATE_URL = "https://github.com/emxts-hub/AS400QuantumSuite/releases/latest"
 _ALLOWED_UPDATE_HOSTS = {"github.com", "emxts-hub.github.io"}
 
 
@@ -15,7 +15,7 @@ def _valid_update_url(value):
         return False
     host = parsed.netloc.lower()
     if host == "github.com":
-        return parsed.path.startswith("/emxts-hub/monitoringtool/")
+        return parsed.path.startswith("/emxts-hub/AS400QuantumSuite/")
     return host == "emxts-hub.github.io"
 
 
