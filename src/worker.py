@@ -9,6 +9,9 @@ import uuid
 import subprocess
 import smtplib
 import queue
+import socket
+import ctypes
+from ctypes import wintypes
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 import pyodbc
@@ -23,6 +26,7 @@ from config import (
     EXPECTED_SUBSYSTEMS,
     safe_json_append_and_save,
     safe_json_save,
+    EXPECTED_WEB_APPS,
 )
 from ui.setcreds import load_email_alerts
 
@@ -47,6 +51,14 @@ _SERVER_ALERT_SOUND_PROCESSES = set()
 _SERVER_ALERT_SOUND_PROCESS_LOCK = threading.Lock()
 _SERVER_ALERT_SOUND_LOCK = threading.Lock()
 _SERVER_ALERT_SOUND_THREAD = None
+_OBJECT_STATISTICS_CACHE_TTL_SECONDS = 3 * 60 * 60
+_OBJECT_STATISTICS_QUERY_TIMEOUT_SECONDS = 120
+_TEMPORARY_STORAGE_JOBS_CACHE_TTL_SECONDS = 3 * 60 * 60
+_TEMPORARY_STORAGE_JOBS_QUERY_TIMEOUT_SECONDS = 120
+_OBJECT_STATISTICS_CACHE_LOCK = threading.Lock()
+_OBJECT_STATISTICS_CACHE = {}
+_OBJECT_STATISTICS_KEY_LOCKS = {}
+_TEMPORARY_STORAGE_JOBS_CACHE = {}
 
 
 class DailyBackupFetchThread(QThread):
@@ -79,7 +91,7 @@ class DailyBackupFetchThread(QThread):
             )
         ) AS J
         ORDER BY JOB_ENTERED_SYSTEM_TIME DESC
-        FETCH FIRST 1 ROW ONLY
+        FETCH FIRST 3 ROW ONLY
 """
 
     def __init__(self, server_name, host, db, username, password, job_name_short):
@@ -173,7 +185,7 @@ def queue_log_persistence(sys_info, server_configs=None):
             pass
 
 
-def _new_connection(host, db, username, password):
+def _new_connection(host, db, username, password, query_timeout_seconds=3):
     # Performance tuning parameters for IBM i ODBC driver
     extra_params = (
         "NAM=1;"              # SQL System Naming (reduces library resolve time)
@@ -189,11 +201,326 @@ def _new_connection(host, db, username, password):
         f"PREFETCH=1;"
         f"BLOCKFETCH=1;"
         f"CONN_TIMEOUT=3;"
-        f"QUERY_TIMEOUT=3;"
+        f"QUERY_TIMEOUT={int(query_timeout_seconds)};"
         f"{extra_params}",
         timeout=3,
         autocommit=True,
     )
+
+
+def check_database_connection(host, db, username, password):
+    conn = None
+    try:
+        conn = _new_connection(host, db, username, password)
+        cursor = conn.cursor()
+        if hasattr(cursor, "execute"):
+            cursor.execute("SELECT 1 FROM SYSIBM.SYSDUMMY1")
+        fetchone = getattr(cursor, "fetchone", None)
+        if callable(fetchone):
+            try:
+                fetchone()
+            except TypeError:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _object_statistics_cache_key(host, db, username):
+    return (
+        str(host).strip().lower(),
+        str(db).strip().upper(),
+        str(username).strip().upper(),
+    )
+
+
+def _get_cached_object_statistics(host, db, username):
+    cache_key = _object_statistics_cache_key(host, db, username)
+    with _OBJECT_STATISTICS_CACHE_LOCK:
+        cached = _OBJECT_STATISTICS_CACHE.get(cache_key)
+    if cached and time.monotonic() - cached[0] < _TEMPORARY_STORAGE_JOBS_CACHE_TTL_SECONDS:
+        return cached[1], cached[2], cached[3], cached[4]
+    return None
+
+
+def _fetch_object_statistics_cached(cursor, host, db, username):
+    cache_key = _object_statistics_cache_key(host, db, username)
+    with _OBJECT_STATISTICS_CACHE_LOCK:
+        key_lock = _OBJECT_STATISTICS_KEY_LOCKS.setdefault(cache_key, threading.Lock())
+
+    with key_lock:
+        cached_result = _get_cached_object_statistics(host, db, username)
+        if cached_result is not None:
+            return cached_result
+        with _OBJECT_STATISTICS_CACHE_LOCK:
+            cached = _OBJECT_STATISTICS_CACHE.get(cache_key)
+
+        try:
+            cursor.execute(
+                """
+                SELECT
+                    O.OBJNAME AS OBJECT_NAME,
+                    O.OBJLIB AS LIBRARY,
+                    O.OBJTYPE AS OBJECT_TYPE,
+                    O.OBJATTRIBUTE AS ATTRIBUTE,
+                    COALESCE(DECIMAL(O.OBJSIZE / 1073741824.0, 10, 2), 0.00) AS SIZE_GB,
+                    COALESCE(DECIMAL(((FLOAT(O.OBJSIZE) / 1073741824.0) / (A.TOTAL_CAPACITY / 1000.0)) * 100, 7, 4), 0.0000) AS PCT_OF_ASP,
+                    O.OBJDEFINER AS DEFINER
+                FROM TABLE(QSYS2.OBJECT_STATISTICS('*ALLUSR', '*ALL')) O
+                CROSS JOIN (
+                    SELECT TOTAL_CAPACITY
+                    FROM QSYS2.ASP_INFO
+                    WHERE ASP_NUMBER = 1
+                ) A
+                ORDER BY
+                    CASE WHEN O.OBJSIZE IS NULL THEN 1 ELSE 0 END ASC,
+                    O.OBJSIZE DESC
+                FETCH FIRST 50 ROWS ONLY
+                WITH UR
+                """
+            )
+            rows = [
+                {
+                    "object_name": str(row[0]).strip() if row[0] is not None else "",
+                    "library": str(row[1]).strip() if row[1] is not None else "",
+                    "object_type": str(row[2]).strip() if row[2] is not None else "",
+                    "attribute": str(row[3]).strip() if row[3] is not None else "",
+                    "size_gb": float(row[4]) if row[4] is not None else 0.0,
+                    "pct_of_asp": float(row[5]) if row[5] is not None else 0.0,
+                    "definer": str(row[6]).strip() if row[6] is not None else "",
+                }
+                for row in cursor.fetchall()
+            ]
+            error = ""
+            loaded = True
+            updated_at = datetime.now().astimezone().strftime("%m/%d/%Y %H:%M")
+        except Exception as exc:
+            rows = cached[1] if cached else []
+            error = str(exc)
+            loaded = bool(cached and cached[3])
+            updated_at = cached[4] if cached else ""
+
+        with _OBJECT_STATISTICS_CACHE_LOCK:
+            _OBJECT_STATISTICS_CACHE[cache_key] = (time.monotonic(), rows, error, loaded, updated_at)
+        return rows, error, loaded, updated_at
+
+
+def _fetch_storage_pools(cursor):
+    cursor.execute(
+        """
+        SELECT
+            POOL_NAME,
+            CURRENT_SIZE AS CURRENT_SIZE_MB
+        FROM QSYS2.MEMORY_POOL_INFO
+        ORDER BY POOL_ID
+        """
+    )
+    return [
+        {
+            "pool_name": str(row[0]).strip() if row[0] is not None else "",
+            "current_size_mb": float(row[1]) if row[1] is not None else 0.0,
+        }
+        for row in cursor.fetchall()
+    ]
+
+
+def _fetch_pool_threads(cursor):
+    cursor.execute(
+        """
+        SELECT
+            POOL_NAME,
+            CURRENT_THREADS
+        FROM QSYS2.MEMORY_POOL_INFO
+        ORDER BY POOL_ID
+        """
+    )
+    return [
+        {
+            "pool_name": str(row[0]).strip() if row[0] is not None else "",
+            "current_threads": float(row[1]) if row[1] is not None else 0.0,
+        }
+        for row in cursor.fetchall()
+    ]
+
+
+def _get_cached_temporary_storage_jobs(host, db, username):
+    cache_key = _object_statistics_cache_key(host, db, username)
+    with _OBJECT_STATISTICS_CACHE_LOCK:
+        cached = _TEMPORARY_STORAGE_JOBS_CACHE.get(cache_key)
+    if cached and time.monotonic() - cached[0] < _OBJECT_STATISTICS_CACHE_TTL_SECONDS:
+        return cached[1], cached[2]
+    return None
+
+
+def _fetch_top_temporary_storage_jobs(cursor):
+    cursor.execute(
+        """
+        SELECT
+            J.JOB_NAME,
+            J.AUTHORIZATION_NAME AS USER_NAME,
+            J.TEMPORARY_STORAGE AS TEMP_STORAGE_MB,
+            COALESCE(DECIMAL(J.TEMPORARY_STORAGE / 1024.0, 10, 2), 0.00) AS TEMP_STORAGE_GB,
+            VARCHAR(COALESCE(DECIMAL((FLOAT(J.TEMPORARY_STORAGE) / A.TOTAL_CAPACITY) * 100, 7, 4), 0.0000)) || '%' AS PCT_OF_ASP
+        FROM TABLE(QSYS2.ACTIVE_JOB_INFO()) J
+        CROSS JOIN (
+            SELECT TOTAL_CAPACITY
+            FROM QSYS2.ASP_INFO
+            WHERE ASP_NUMBER = 1
+        ) A
+        ORDER BY J.TEMPORARY_STORAGE DESC
+        FETCH FIRST 50 ROWS ONLY
+        WITH UR
+        """
+    )
+    return [
+        {
+            "job_name": str(row[0]).strip() if row[0] is not None else "",
+            "user_name": str(row[1]).strip() if row[1] is not None else "",
+            "temp_storage_mb": row[2] if row[2] is not None else 0,
+            "temp_storage_gb": float(row[3]) if row[3] is not None else 0.0,
+            "pct_of_asp": str(row[4]).strip() if row[4] is not None else "0.0000%",
+        }
+        for row in cursor.fetchall()
+    ]
+
+
+def _fetch_web_app_jobs(cursor, configured_web_apps):
+    app_names = set()
+    for entry in configured_web_apps or []:
+        if isinstance(entry, dict):
+            app_name = entry.get("job_name") or entry.get("name") or entry.get("job") or ""
+        elif isinstance(entry, str):
+            app_name = entry.split(":", 1)[0]
+        else:
+            continue
+        normalized_name = str(app_name).strip().upper()
+        if normalized_name:
+            app_names.add(normalized_name)
+
+    query = """
+        SELECT
+            JOB_NAME,
+            JOB_STATUS,
+            TEMPORARY_STORAGE,
+            CPU_TIME
+        FROM TABLE(QSYS2.ACTIVE_JOB_INFO(
+            JOB_NAME_FILTER => ?,
+            DETAILED_INFO => 'NONE'
+        ))
+    """
+    jobs_by_app = {}
+    for app_name in sorted(app_names):
+        cursor.execute(query, (f"{app_name}*",))
+        matching_jobs = []
+        for row in cursor.fetchall():
+            job = {
+                "job_name": str(row[0]).strip() if row[0] is not None else "",
+                "job_status": str(row[1]).strip() if row[1] is not None else "",
+                "temporary_storage": row[2] if row[2] is not None else 0,
+                "cpu_time": row[3] if row[3] is not None else 0,
+            }
+            if job["job_name"].rsplit("/", 1)[-1].strip().upper() == app_name:
+                matching_jobs.append(job)
+        jobs_by_app[app_name] = matching_jobs
+    return jobs_by_app
+
+
+def _active_job_detail_from_row(row):
+    return {
+        "job_name": str(row[0]).strip() if row[0] is not None else "",
+        "authorization_name": str(row[1]).strip() if row[1] is not None else "",
+        "cpu_time": row[2] if row[2] is not None else 0,
+        "elapsed_cpu_percentage": row[3] if row[3] is not None else 0,
+        "run_priority": row[4] if row[4] is not None else "",
+        "job_status": str(row[5]).strip() if row[5] is not None else "",
+        "temporary_storage": row[6] if row[6] is not None else 0,
+    }
+
+
+def _fetch_web_app_ports(cursor, configured_web_apps):
+    apps = []
+    valid_ports = set()
+    for entry in configured_web_apps or []:
+        if isinstance(entry, dict):
+            app_name = entry.get("job_name") or entry.get("name") or entry.get("job") or ""
+            port_value = entry.get("port")
+        elif isinstance(entry, str) and ":" in entry:
+            app_name, port_value = entry.split(":", 1)
+        else:
+            continue
+
+        app_name = str(app_name).strip().upper()
+        try:
+            port = int(port_value)
+        except (TypeError, ValueError):
+            continue
+        if not app_name:
+            continue
+        is_valid = 1 <= port <= 65535
+        apps.append({"name": app_name, "port": port, "is_valid": is_valid})
+        if is_valid:
+            valid_ports.add(port)
+
+    active_ports = set()
+    if valid_ports:
+        port_values = sorted(valid_ports)
+        placeholders = ", ".join("?" for _ in port_values)
+        cursor.execute(
+            f"""
+            SELECT DISTINCT LOCAL_PORT
+            FROM QSYS2.NETSTAT_INFO
+            WHERE LOCAL_PORT IN ({placeholders})
+              AND TCP_STATE = 'LISTEN'
+            ORDER BY LOCAL_PORT
+            """,
+            *port_values,
+        )
+        active_ports = {
+            int(row[0]) for row in cursor.fetchall()
+            if row[0] is not None and str(row[0]).isdigit()
+        }
+
+    return [
+        {
+            "name": app["name"],
+            "port": app["port"],
+            "is_up": app["is_valid"] and app["port"] in active_ports,
+        }
+        for app in apps
+    ]
+
+
+def _fetch_web_app_jobs_after_port_check(cursor, web_app_ports, active_jobs_detail=None):
+    jobs_by_app = _fetch_web_app_jobs(cursor, web_app_ports or [])
+    active_jobs = active_jobs_detail if isinstance(active_jobs_detail, list) else []
+
+    for app in web_app_ports or []:
+        if not isinstance(app, dict):
+            continue
+        app_name = str(app.get("name") or "").strip().upper()
+        if not app_name:
+            continue
+
+        app_jobs = jobs_by_app.setdefault(app_name, [])
+        known_job_names = {
+            str(job.get("job_name") or "").strip().upper()
+            for job in app_jobs
+            if isinstance(job, dict)
+        }
+        for job in active_jobs:
+            if not isinstance(job, dict):
+                continue
+            job_name = str(job.get("job_name") or "").strip()
+            unqualified_name = job_name.rsplit("/", 1)[-1].upper()
+            normalized_job_name = job_name.upper()
+            if unqualified_name == app_name and normalized_job_name not in known_job_names:
+                app_jobs.append(job)
+                known_job_names.add(normalized_job_name)
+
+    return jobs_by_app
 
 
 def _normalize_recipients(value):
@@ -333,6 +660,9 @@ def play_server_down_alert_sound():
         global _SERVER_ALERT_SOUND_THREAD
         try:
             while not _SERVER_ALERT_SOUND_STOP_EVENT.is_set():
+                with _ALERT_STATE_LOCK:
+                    if not _SERVER_ALERTING_SERVERS:
+                        return
                 try:
                     play_once()
                 except Exception:
@@ -541,30 +871,27 @@ def stop_asp_alert_sound():
     global _ALERT_SOUND_THREAD
     _ALERT_SOUND_STOP_EVENT.set()
 
-    def _stop_playback():
-        if sys.platform == "win32":
-            try:
-                import winsound
-                winsound.PlaySound(None, winsound.SND_PURGE)
-                winsound.PlaySound(None, 0)
-            except Exception:
-                pass
+    if sys.platform == "win32":
+        try:
+            import winsound
+            winsound.PlaySound(None, winsound.SND_PURGE)
+            winsound.PlaySound(None, 0)
+        except Exception:
+            pass
 
-        with _ALERT_SOUND_PROCESS_LOCK:
-            processes = list(_ALERT_SOUND_PROCESSES)
-            _ALERT_SOUND_PROCESSES.clear()
+    with _ALERT_SOUND_PROCESS_LOCK:
+        processes = list(_ALERT_SOUND_PROCESSES)
+        _ALERT_SOUND_PROCESSES.clear()
 
-        for process in processes:
-            try:
-                if process.poll() is None:
-                    process.terminate()
-            except Exception:
-                pass
+    for process in processes:
+        try:
+            if process.poll() is None:
+                process.terminate()
+        except Exception:
+            pass
 
-        with _ALERT_SOUND_LOCK:
-            _ALERT_SOUND_THREAD = None
-
-    threading.Thread(target=_stop_playback, daemon=True).start()
+    with _ALERT_SOUND_LOCK:
+        _ALERT_SOUND_THREAD = None
 
 
 def send_asp_alert(server_name, asp_value, threshold_percent):
@@ -607,6 +934,9 @@ def send_asp_alert(server_name, asp_value, threshold_percent):
 
 def send_server_status_alert(server_name, status, error=""):
     """Send an SMTP alert when a monitored server becomes unreachable."""
+    if str(status).upper() == "OFFLINE" and not has_vpn_ip():
+        return False
+
     alert_cfg = load_email_alerts()
     if not alert_cfg.get("enabled"):
         return False
@@ -651,7 +981,9 @@ def maybe_send_server_status_alert(result):
     An offline result without the monitoring VPN is treated as a local network
     condition, not as proof that the IBM i server is down.
     """
-    server_name = str(result.get("server") or result.get("config_key") or "Unknown server")
+    # Use the configured key for state tracking. The reported IBM i host name
+    # can differ between successful and failed connection results.
+    server_name = str(result.get("config_key") or result.get("server") or "Unknown server")
     status = str(result.get("status", "OFFLINE")).upper()
     is_down = status == "OFFLINE"
     is_up = status in {"ONLINE", "DEGRADED"}
@@ -731,6 +1063,7 @@ def maybe_send_asp_alert(server_name, asp_value):
             # ONLY stop sound if NO other servers are currently armed
             any_armed = any(st.get("armed", False) for st in _LAST_ASP_ALERT_STATE.values())
             if not any_armed:
+                _LAST_ASP_ALERT_STATE.clear()
                 stop_asp_alert_sound()
             return False
 
@@ -756,27 +1089,113 @@ def maybe_send_asp_alert(server_name, asp_value):
     return sound_played
 
 
-def has_vpn_ip(prefix="10.212."):
-    """Returns whether Windows has an IPv4 address assigned in the VPN range."""
-    command = [
-        "powershell",
-        "-NoProfile",
-        "-Command",
-        "(Get-NetIPAddress -AddressFamily IPv4).IPAddress",
+AF_INET = 2
+ERROR_BUFFER_OVERFLOW = 111
+IF_OPER_STATUS_UP = 1
+
+
+class _SocketAddress(ctypes.Structure):
+    _fields_ = [
+        ("lpSockaddr", ctypes.c_void_p),
+        ("iSockaddrLength", ctypes.c_int),
     ]
+
+
+class _IpAdapterUnicastAddress(ctypes.Structure):
+    pass
+
+
+_IpAdapterUnicastAddress._fields_ = [
+    ("Length", wintypes.ULONG),
+    ("Flags", wintypes.ULONG),
+    ("Next", ctypes.POINTER(_IpAdapterUnicastAddress)),
+    ("Address", _SocketAddress),
+]
+
+
+class _IpAdapterAddresses(ctypes.Structure):
+    pass
+
+
+_IpAdapterAddresses._fields_ = [
+    ("Length", wintypes.ULONG),
+    ("IfIndex", wintypes.ULONG),
+    ("Next", ctypes.POINTER(_IpAdapterAddresses)),
+    ("AdapterName", ctypes.c_char_p),
+    ("FirstUnicastAddress", ctypes.POINTER(_IpAdapterUnicastAddress)),
+    ("FirstAnycastAddress", ctypes.c_void_p),
+    ("FirstMulticastAddress", ctypes.c_void_p),
+    ("FirstDnsServerAddress", ctypes.c_void_p),
+    ("DnsSuffix", ctypes.c_wchar_p),
+    ("Description", ctypes.c_wchar_p),
+    ("FriendlyName", ctypes.c_wchar_p),
+    ("PhysicalAddress", ctypes.c_ubyte * 8),
+    ("PhysicalAddressLength", wintypes.ULONG),
+    ("Flags", wintypes.ULONG),
+    ("Mtu", wintypes.ULONG),
+    ("IfType", wintypes.ULONG),
+    ("OperStatus", wintypes.ULONG),
+]
+
+
+def has_vpn_ip(prefix="10.212.134"):
+    """Return whether an active Windows adapter owns an IPv4 VPN address."""
+    if sys.platform != "win32":
+        return False
+
     try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=2,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        iphlpapi = ctypes.windll.iphlpapi
+        get_adapters = iphlpapi.GetAdaptersAddresses
+        get_adapters.argtypes = [
+            wintypes.ULONG,
+            wintypes.ULONG,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.POINTER(wintypes.ULONG),
+        ]
+        get_adapters.restype = wintypes.ULONG
+
+        # Skip anycast, multicast, and DNS entries, but keep unicast addresses.
+        flags = 0x0002 | 0x0004 | 0x0008
+        buffer_len = wintypes.ULONG(15 * 1024)
+        buffer = ctypes.create_string_buffer(buffer_len.value)
+        result = get_adapters(
+            AF_INET,
+            flags,
+            None,
+            buffer,
+            ctypes.byref(buffer_len),
         )
-        return result.returncode == 0 and any(
-            address.strip().startswith(prefix)
-            for address in result.stdout.splitlines()
-        )
-    except (OSError, subprocess.SubprocessError):
+
+        if result == ERROR_BUFFER_OVERFLOW:
+            buffer = ctypes.create_string_buffer(buffer_len.value)
+            result = get_adapters(
+                AF_INET,
+                flags,
+                None,
+                buffer,
+                ctypes.byref(buffer_len),
+            )
+        if result != 0:
+            return False
+
+        adapter = ctypes.cast(buffer, ctypes.POINTER(_IpAdapterAddresses))
+        while adapter:
+            current = adapter.contents
+            if current.OperStatus == IF_OPER_STATUS_UP:
+                unicast = current.FirstUnicastAddress
+                while unicast:
+                    address = unicast.contents.Address
+                    if address.lpSockaddr and address.iSockaddrLength >= 8:
+                        raw_sockaddr = ctypes.string_at(address.lpSockaddr, 8)
+                        if int.from_bytes(raw_sockaddr[:2], "little") == AF_INET:
+                            ip_address = socket.inet_ntoa(raw_sockaddr[4:8])
+                            if ip_address.startswith(prefix):
+                                return True
+                    unicast = unicast.contents.Next
+            adapter = current.Next
+        return False
+    except (AttributeError, OSError, ValueError):
         return False
 
 
@@ -1205,6 +1624,115 @@ class LparWorkerSignals(QObject):
     server_failed = pyqtSignal(dict)
 
 
+class ObjectStatisticsSignals(QObject):
+    statistics_ready = pyqtSignal(dict)
+
+
+class ObjectStatisticsRunnable(QRunnable):
+    def __init__(self, server, cfg, username, password, signal_parent=None):
+        super().__init__()
+        self.server = server
+        self.cfg = cfg
+        self.username = username
+        self.password = password
+        self.signals = ObjectStatisticsSignals(signal_parent)
+
+    def run(self):
+        host = self.cfg.get("host", "") if isinstance(self.cfg, dict) else str(self.cfg)
+        db = self.cfg.get("db", "*LOCAL") if isinstance(self.cfg, dict) else "*LOCAL"
+        result = {
+            "config_key": self.server,
+            "object_statistics": [],
+            "object_statistics_error": "",
+            "object_statistics_loaded": False,
+            "object_statistics_updated_at": "",
+        }
+        conn = None
+        try:
+            cached = _get_cached_object_statistics(host, db, self.username)
+            if cached is None:
+                conn = _new_connection(
+                    host,
+                    db,
+                    self.username,
+                    self.password,
+                    _OBJECT_STATISTICS_QUERY_TIMEOUT_SECONDS,
+                )
+                cursor = conn.cursor()
+                cached = _fetch_object_statistics_cached(cursor, host, db, self.username)
+            rows, error, loaded, updated_at = cached
+            result["object_statistics"] = rows
+            result["object_statistics_error"] = error
+            result["object_statistics_loaded"] = loaded
+            result["object_statistics_updated_at"] = updated_at
+        except Exception as exc:
+            result["object_statistics_error"] = str(exc)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        self.signals.statistics_ready.emit(result)
+
+
+class TemporaryStorageJobsSignals(QObject):
+    jobs_ready = pyqtSignal(dict)
+
+
+class TemporaryStorageJobsRunnable(QRunnable):
+    def __init__(self, server, cfg, username, password, signal_parent=None):
+        super().__init__()
+        self.server = server
+        self.cfg = cfg
+        self.username = username
+        self.password = password
+        self.signals = TemporaryStorageJobsSignals(signal_parent)
+
+    def run(self):
+        host = self.cfg.get("host", "") if isinstance(self.cfg, dict) else str(self.cfg)
+        db = self.cfg.get("db", "*LOCAL") if isinstance(self.cfg, dict) else "*LOCAL"
+        cache_key = _object_statistics_cache_key(host, db, self.username)
+        result = {
+            "config_key": self.server,
+            "top_temporary_storage_jobs": [],
+            "top_temporary_storage_jobs_error": "",
+        }
+        cached = _get_cached_temporary_storage_jobs(host, db, self.username)
+        conn = None
+        try:
+            if cached is None:
+                conn = _new_connection(
+                    host,
+                    db,
+                    self.username,
+                    self.password,
+                    _TEMPORARY_STORAGE_JOBS_QUERY_TIMEOUT_SECONDS,
+                )
+                try:
+                    jobs = _fetch_top_temporary_storage_jobs(conn.cursor())
+                    error = ""
+                except Exception as exc:
+                    jobs = []
+                    error = str(exc)
+                cached = (jobs, error)
+                with _OBJECT_STATISTICS_CACHE_LOCK:
+                    _TEMPORARY_STORAGE_JOBS_CACHE[cache_key] = (
+                        time.monotonic(), jobs, error
+                    )
+            result["top_temporary_storage_jobs"] = cached[0]
+            result["top_temporary_storage_jobs_error"] = cached[1]
+        except Exception as exc:
+            result["top_temporary_storage_jobs_error"] = str(exc)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        self.signals.jobs_ready.emit(result)
+
+
 class SingleLparRunnable(QRunnable):
     """Concurrent worker task for fetching metrics from a single LPAR connection."""
     def __init__(self, server, cfg, username, password, cancel_event=None, signal_parent=None):
@@ -1260,6 +1788,8 @@ class SingleLparRunnable(QRunnable):
             asp_used = 0.0
             cpu_util = 0.0
             metric_errors = []
+            storage_pools = None
+            pool_threads = None
 
             try:
                 cursor.execute(
@@ -1289,22 +1819,29 @@ class SingleLparRunnable(QRunnable):
                     """
                     SELECT
                         JOB_NAME,
+                        AUTHORIZATION_NAME,
+                        CPU_TIME,
+                        ELAPSED_CPU_PERCENTAGE,
+                        RUN_PRIORITY,
                         JOB_STATUS,
-                        TEMPORARY_STORAGE,
-                        CPU_TIME
+                        TEMPORARY_STORAGE
                     FROM TABLE(QSYS2.ACTIVE_JOB_INFO(DETAILED_INFO => 'NONE'))
                     """
                 )
                 for row in cursor.fetchall():
-                    active_jobs_detail.append({
-                        "job_name": str(row[0]).strip() if row[0] is not None else "",
-                        "job_status": str(row[1]).strip() if row[1] is not None else "",
-                        "temporary_storage": row[2] if row[2] is not None else 0,
-                        "cpu_time": row[3] if row[3] is not None else 0,
-                    })
+                    active_jobs_detail.append(_active_job_detail_from_row(row))
                 active_jobs = len(active_jobs_detail)
             except Exception as e:
                 metric_errors.append(f"active job details: {e}")
+
+            try:
+                storage_pools = _fetch_storage_pools(cursor)
+            except Exception:
+                pass
+            try:
+                pool_threads = _fetch_pool_threads(cursor)
+            except Exception:
+                pass
 
             if self.check_cancelled():
                 return
@@ -1421,6 +1958,25 @@ class SingleLparRunnable(QRunnable):
             except Exception as e:
                 metric_errors.append(f"ports: {e}")
 
+            web_app_ports = []
+            try:
+                web_app_ports = _fetch_web_app_ports(
+                    cursor,
+                    EXPECTED_WEB_APPS.get(self.server, []),
+                )
+            except Exception as e:
+                metric_errors.append(f"web app ports: {e}")
+
+            web_app_jobs_detail = {}
+            try:
+                web_app_jobs_detail = _fetch_web_app_jobs_after_port_check(
+                    cursor,
+                    web_app_ports,
+                    active_jobs_detail,
+                )
+            except Exception as e:
+                metric_errors.append(f"web app job details: {e}")
+
             result = {
                 "server": system_name,
                 "host_name": system_name,
@@ -1430,9 +1986,15 @@ class SingleLparRunnable(QRunnable):
                 "asp": asp_used,
                 "jobs": active_jobs,
                 "active_jobs_detail": active_jobs_detail,
+                "web_app_jobs_detail": web_app_jobs_detail,
+                "web_app_ports": web_app_ports,
                 "subsystems": active_subsystems,
                 "ports": port_status_list,
             }
+            if storage_pools is not None:
+                result["storage_pools"] = storage_pools
+            if pool_threads is not None:
+                result["pool_threads"] = pool_threads
             if metric_errors:
                 result["error"] = "; ".join(metric_errors)
 
@@ -1449,6 +2011,8 @@ class SingleLparRunnable(QRunnable):
                     "asp": 0.0,
                     "jobs": 0,
                     "active_jobs_detail": [],
+                    "web_app_jobs_detail": {},
+                    "web_app_ports": [],
                     "subsystems": [],
                     "ports": [],
                 }
@@ -1463,6 +2027,8 @@ class SingleLparRunnable(QRunnable):
                     "asp": 0.0,
                     "jobs": 0,
                     "active_jobs_detail": [],
+                    "web_app_jobs_detail": {},
+                    "web_app_ports": [],
                     "subsystems": [],
                     "ports": [],
                 }
@@ -1481,7 +2047,7 @@ class SingleLparRunnable(QRunnable):
             except Exception:
                 pass
             try:
-                maybe_send_asp_alert(str(result.get("server") or self.server), float(result.get("asp", 0.0) or 0.0))
+                maybe_send_asp_alert(str(result.get("config_key") or self.server), float(result.get("asp", 0.0) or 0.0))
             except Exception:
                 pass
             _persist_and_emit(self, result)

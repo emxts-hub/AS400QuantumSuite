@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from config import get_logs_dir, safe_json_save
+from config import get_all_logs_dirs, get_monthly_logs_dir_for, safe_json_save
 from worker import DailyBackupFetchThread
 
 _BACKUP_FILE_LOCK = threading.RLock()
@@ -114,12 +114,14 @@ class BackupManagementWidget(QWidget):
             self.select_server(self.backup_server_buttons[0].property("server_key"))
 
     def _populate_month_selector(self):
+        selected_month = self.month_combo.currentData()
         self.month_combo.clear()
-        logs_dir = get_logs_dir()
         found_months = set()
 
-        # Scan log directory for files matching daily_backup_YYYY-MM.json or journal_backup_YYYY-MM.json
-        if os.path.exists(logs_dir):
+        # Scan monthly archive folders for backup files.
+        for logs_dir in get_all_logs_dirs():
+            if not os.path.exists(logs_dir):
+                continue
             for filename in os.listdir(logs_dir):
                 if filename.endswith(".json") and ("_backup_" in filename):
                     parts = filename.rsplit("_backup_", 1)
@@ -143,6 +145,10 @@ class BackupManagementWidget(QWidget):
             date_obj = datetime.strptime(month_str, "%Y-%m")
             display_str = date_obj.strftime("%B %Y")
             self.month_combo.addItem(display_str, month_str)
+        if selected_month:
+            selected_index = self.month_combo.findData(selected_month)
+            if selected_index >= 0:
+                self.month_combo.setCurrentIndex(selected_index)
 
     def _selected_month_prefix(self):
         return self.month_combo.currentData() or datetime.now().strftime("%Y-%m")
@@ -242,7 +248,8 @@ class BackupManagementWidget(QWidget):
 
     def _backup_json_path(self, backup_type, month_prefix=None):
         prefix = month_prefix or self._selected_month_prefix()
-        return os.path.join(get_logs_dir(), f"{backup_type}_backup_{prefix}.json")
+        logs_dir = get_monthly_logs_dir_for(prefix)
+        return os.path.join(logs_dir, f"{backup_type}_backup_{prefix}.json")
 
     def _load_backup_json(self, server_name, backup_type):
         records = []
@@ -297,6 +304,11 @@ class BackupManagementWidget(QWidget):
             return parsed.date()
         except (TypeError, ValueError):
             return None
+
+    @classmethod
+    def _record_month_prefix(cls, record):
+        start_date = cls._record_start_date(record)
+        return start_date.strftime("%Y-%m") if start_date else datetime.now().strftime("%Y-%m")
 
     @classmethod
     def _weekday_records(cls, records):
@@ -393,35 +405,46 @@ class BackupManagementWidget(QWidget):
             self.server_row.insertWidget(i + 1, self.backup_server_buttons[i])
 
     def _handle_backup_data(self, backup_type, server_name, records):
-        current_month = datetime.now().strftime("%Y-%m")
-        path = self._backup_json_path(backup_type, current_month)
+        records_by_month = {}
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            month_prefix = self._record_month_prefix(record)
+            records_by_month.setdefault(month_prefix, []).append(record)
+
         with _BACKUP_FILE_LOCK:
-            data = self._read_backup_file(path)
-            existing_records = data.get(server_name, [])
+            for month_prefix, month_records in records_by_month.items():
+                path = self._backup_json_path(backup_type, month_prefix)
+                data = self._read_backup_file(path)
+                existing_records = data.get(server_name, [])
 
-            combined = {
-                (rec.get("job_name"), str(rec.get("start_time"))): rec
-                for rec in existing_records + records
-            }
-            updated_records = sorted(
-                combined.values(),
-                key=lambda x: str(x.get("start_time", "")),
-                reverse=True,
-            )
-            data[server_name] = updated_records
-
-            if not safe_json_save(path, data):
-                self._handle_backup_error(
-                    backup_type,
-                    server_name,
-                    "Could not save backup history; the destination is unavailable.",
+                combined = {
+                    (rec.get("job_name"), str(rec.get("start_time"))): rec
+                    for rec in existing_records + month_records
+                }
+                data[server_name] = sorted(
+                    combined.values(),
+                    key=lambda record: str(record.get("start_time", "")),
+                    reverse=True,
                 )
-                return
 
+                if not safe_json_save(path, data):
+                    self._handle_backup_error(
+                        backup_type,
+                        server_name,
+                        "Could not save backup history; the destination is unavailable.",
+                    )
+                    return
+
+        selected_month = self._selected_month_prefix()
+        self.month_combo.blockSignals(True)
+        self._populate_month_selector()
+        selected_index = self.month_combo.findData(selected_month)
+        if selected_index >= 0:
+            self.month_combo.setCurrentIndex(selected_index)
+        self.month_combo.blockSignals(False)
         if server_name == self.backup_selected_server:
-            selected_month = self._selected_month_prefix()
-            if selected_month == current_month:
-                self._populate_backup_table(self.backup_tables[backup_type], updated_records)
+            self._load_backup_json(server_name, backup_type)
 
     def _handle_backup_error(self, backup_type, server_name, message):
         current_month = datetime.now().strftime("%Y-%m")

@@ -4,16 +4,17 @@ import csv
 import ast
 import re
 from typing import TYPE_CHECKING
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from PyQt6.QtCore import Qt, QTimer, QFileSystemWatcher, QObject, QRunnable, QThreadPool, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QCursor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, 
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, 
-    QAbstractItemView, QScrollArea, QFrame, QFileDialog, QMessageBox, 
-    QApplication, QDialog, QGridLayout
+    QAbstractItemView, QScrollArea, QFrame, QFileDialog,
+    QApplication, QGridLayout
 )
 from config import get_logs_dir, get_all_logs_dirs
+from dialogs import SubsystemStatusDialog, show_critical_dialog, show_information_dialog
 
 if TYPE_CHECKING:
     from ui.monthly_report import MonthlyReportWidget
@@ -377,9 +378,10 @@ class LogViewerWidget(QWidget):
     def on_buffer_changed(self):
         value = self.buffer_combo.currentText()
         self.log_buffer_limit = None if value == "All" else int(value)
-
-        # Let the UI repaint before the heavy view refresh so the loading overlay can display.
-        QTimer.singleShot(0, self._apply_buffer_rebuild)
+        self.show()
+        self._show_loading("Loading logs...")
+        self.populate_views()
+        QTimer.singleShot(150, self._hide_loading)
 
     def _apply_buffer_rebuild(self):
         self._show_loading("Loading logs...")
@@ -572,7 +574,15 @@ class LogViewerWidget(QWidget):
         available_dates = sorted(self.log_data_store.keys(), reverse=True)
         if not available_dates:
             return [date.today().strftime("%Y-%m-%d")]
-        return available_dates[: self.max_history_days]
+
+        latest_day = datetime.strptime(available_dates[0], "%Y-%m-%d").date()
+        start_day = latest_day - timedelta(days=self.max_history_days - 1)
+        date_window = []
+        current = latest_day
+        while current >= start_day:
+            date_window.append(current.strftime("%Y-%m-%d"))
+            current -= timedelta(days=1)
+        return date_window
 
     def _on_history_loaded(self, result):
         self._history_loading = False
@@ -697,7 +707,10 @@ class LogViewerWidget(QWidget):
     def on_date_changed(self):
         if not self.date_combo.signalsBlocked():
             self._date_selected_by_user = True
-        QTimer.singleShot(0, self._apply_date_rebuild)
+        self.show()
+        self._show_loading("Loading logs...")
+        self.populate_views()
+        QTimer.singleShot(150, self._hide_loading)
 
     def _apply_date_rebuild(self):
         self._show_loading("Loading logs...")
@@ -1038,7 +1051,7 @@ class LogViewerWidget(QWidget):
                 except ImportError:
                     csv_path = file_path.replace(".xlsx", ".csv")
                     self._export_to_csv(csv_path)
-                    QMessageBox.information(
+                    show_information_dialog(
                         self,
                         "Exported as CSV",
                         f"openpyxl module is not installed. Exported log as CSV to:\n{csv_path}"
@@ -1047,10 +1060,10 @@ class LogViewerWidget(QWidget):
             else:
                 self._export_to_csv(file_path)
 
-            QMessageBox.information(self, "Export Successful", f"Log data successfully exported to:\n{file_path}")
+            show_information_dialog(self, "Export Successful", f"Log data successfully exported to:\n{file_path}")
 
         except Exception as e:
-            QMessageBox.critical(self, "Export Error", f"An error occurred while exporting:\n{str(e)}")
+            show_critical_dialog(self, "Export Error", f"An error occurred while exporting:\n{str(e)}")
 
     def _export_table_to_openpyxl(self, table, sheet):
         headers = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount() - 1)]
@@ -1164,92 +1177,17 @@ class LogViewerWidget(QWidget):
                 writer.writerow(row_data)
 
     def _show_subsystems_dialog(self, lpar_name, subsystems, expected_key=None):
-        from config import EXPECTED_SUBSYSTEMS
-
-        # Don't show dialog if there are no subsystems to display
         if not subsystems:
             return
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Subsystem Status - {lpar_name}")
-        dialog.setMinimumWidth(480)
-        dialog_bg = "#161b22" if self.is_dark_theme else "#ffffff"
-        dialog_text = "#c9d1d9" if self.is_dark_theme else "#1f2328"
-        dialog.setStyleSheet(
-            f"QDialog {{ background-color: {dialog_bg}; color: {dialog_text}; }}"
+        dialog = SubsystemStatusDialog(
+            lpar_name,
+            subsystems,
+            self.is_dark_theme,
+            self._make_font("Segoe UI", 10, QFont.Weight.Bold),
+            self,
         )
-
-        layout = QVBoxLayout(dialog)
-        title_label = QLabel(f"Subsystems status on {lpar_name}:")
-        title_label.setFont(self._make_font("Segoe UI", 10, QFont.Weight.Bold))
-        title_label.setStyleSheet(
-            "color: #ffffff; margin-bottom: 8px;"
-            if self.is_dark_theme
-            else "color: #1f2328; margin-bottom: 8px;"
-        )
-        layout.addWidget(title_label)
-
-        grid_widget = QWidget()
-        grid = QGridLayout(grid_widget)
-        grid.setSpacing(6)
-
-        all_display_items = []
-        for sub in subsystems:
-            sub_name = ""
-            status = "ACTIVE"
-
-            if isinstance(sub, dict):
-                sub_name = sub.get("name", "")
-                status = str(sub.get("status", "ACTIVE")).upper()
-            elif isinstance(sub, str):
-                s_str = sub.strip()
-                if s_str.startswith("{") and s_str.endswith("}"):
-                    try:
-                        parsed = ast.literal_eval(s_str)
-                        if isinstance(parsed, dict):
-                            sub_name = parsed.get("name", "")
-                            status = str(parsed.get("status", "ACTIVE")).upper()
-                    except Exception:
-                        sub_name = s_str
-                else:
-                    sub_name = s_str
-            else:
-                sub_name = str(sub)
-
-            clean_name = str(sub_name).strip().upper()
-            if not clean_name:
-                continue
-            is_down = status in ["INACTIVE", "DOWN", "INACTIVE/OFF", "OFF"]
-            all_display_items.append((clean_name, is_down))
-
-        if not all_display_items:
-            return
-
-        for idx, (sub_name, is_down) in enumerate(all_display_items):
-            if is_down:
-                badge_style = (
-                    "background-color: #3c1618; color: #f85149; border: 1px solid #f85149; "
-                    "border-radius: 4px; padding: 4px 8px; font-weight: bold; font-size: 11px;"
-                )
-                badge_text = f"[DOWN] {sub_name}"
-            else:
-                badge_style = (
-                    "background-color: #0d281e; color: #3fb950; border: 1px solid #1e4b33; "
-                    "border-radius: 4px; padding: 4px 8px; font-weight: bold; font-size: 11px;"
-                )
-                badge_text = f"[ACTIVE] {sub_name}"
-
-            badge = QLabel(badge_text)
-            badge.setStyleSheet(badge_style)
-            grid.addWidget(badge, idx // 3, idx % 3)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setWidget(grid_widget)
-        layout.addWidget(scroll)
-
-        dialog.exec()
+        if dialog.has_items:
+            dialog.exec()
 
     def closeEvent(self, a0):
         if hasattr(self, "auto_refresh_timer"):

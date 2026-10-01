@@ -11,8 +11,9 @@ from PyQt6.QtCore import Qt, QPointF, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF, QCursor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QFileDialog,
-    QMessageBox, QCheckBox
+    QCheckBox
 )
+from dialogs import show_critical_dialog, show_information_dialog
 
 
 class LoadingOverlay(QWidget):
@@ -71,8 +72,14 @@ class ReportWorker(QThread):
         self.asp_mode = asp_mode
 
     def run(self):
+        if self.isInterruptionRequested():
+            return
         cpu_report = self.widget._build_month_report(self.month_key, self.cpu_mode, metric_filter="CPU")
+        if self.isInterruptionRequested():
+            return
         asp_report = self.widget._build_month_report(self.month_key, self.asp_mode, metric_filter="ASP")
+        if self.isInterruptionRequested():
+            return
         self.finished.emit(cpu_report, asp_report)
 
 
@@ -541,13 +548,13 @@ class MonthlyReportWidget(QWidget):
             self._last_auto_report_month = self._pending_generated_month
             if hasattr(self, "month_combo") and self.month_combo is not None:
                 self.month_combo.setCurrentText(self._pending_generated_month)
-            QMessageBox.information(
+            show_information_dialog(
                 self,
                 "Monthly Report Generated",
                 f"Monthly report successfully generated to:\n{file_path}"
             )
         else:
-            QMessageBox.critical(
+            show_critical_dialog(
                 self,
                 "Monthly Report Error",
                 f"Unable to generate the monthly report at:\n{file_path}"
@@ -556,7 +563,16 @@ class MonthlyReportWidget(QWidget):
 
     def generate_previous_month_report(self, now=None, *_args):
         """Generate or regenerate the previous month report immediately for the current app state."""
-        if now is None or isinstance(now, bool):
+        if isinstance(now, bool):
+            now = datetime.now()
+            previous_month = now.replace(day=1) - timedelta(days=1)
+            month_key = previous_month.strftime("%Y-%m")
+            file_path = self._build_auto_report_path(month_key)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            self._save_monthly_report_to_file(month_key, file_path, silent=True)
+            return file_path
+
+        if now is None:
             now = datetime.now()
         elif not hasattr(now, "replace"):
             now = datetime.now()
@@ -576,13 +592,37 @@ class MonthlyReportWidget(QWidget):
         self._report_generation_worker.start()
         return file_path
 
+    def _get_report_chart_mode(self, attribute_name):
+        """Safely read a chart mode without requiring a fully initialized QWidget."""
+        try:
+            chart = getattr(self, attribute_name, None)
+        except RuntimeError:
+            return "day"
+        if chart is None:
+            return "day"
+        try:
+            mode = getattr(chart, "mode", "day")
+        except RuntimeError:
+            return "day"
+        return mode or "day"
+
+    def _safe_hourly_report_data(self, month_key, metric):
+        """Return the hourly data for a month when the widget has not been fully initialized."""
+        try:
+            return self._filter_hourly_servers(self._extract_hourly_data(month_key, metric=metric))
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            return {}
+
     def _save_monthly_report_to_file(self, month_key, file_path, silent=False):
         """Write the report workbook or CSV without prompting the user."""
         snapshot_cpu_report = self._build_month_report(month_key, "day", metric_filter="CPU")
         snapshot_asp_report = self._build_month_report(month_key, "day", metric_filter="ASP")
         self._save_report_snapshot(month_key, snapshot_cpu_report, snapshot_asp_report)
-        cpu_report = self._build_month_report(month_key, self.cpu_chart.mode, metric_filter="CPU")
-        asp_report = self._build_month_report(month_key, self.asp_chart.mode, metric_filter="ASP")
+
+        cpu_mode = self._get_report_chart_mode("cpu_chart")
+        asp_mode = self._get_report_chart_mode("asp_chart")
+        cpu_report = self._build_month_report(month_key, cpu_mode, metric_filter="CPU")
+        asp_report = self._build_month_report(month_key, asp_mode, metric_filter="ASP")
         cpu_report = self._filter_report_servers(cpu_report)
         asp_report = self._filter_report_servers(asp_report)
 
@@ -784,12 +824,8 @@ class MonthlyReportWidget(QWidget):
                     m_name = month_name[month_num]
                     days_in_month = monthrange(year, month_num)[1]
 
-                    hourly_cpu = self._filter_hourly_servers(
-                        self._extract_hourly_data(month_key, metric="cpu")
-                    )
-                    hourly_asp = self._filter_hourly_servers(
-                        self._extract_hourly_data(month_key, metric="asp")
-                    )
+                    hourly_cpu = self._safe_hourly_report_data(month_key, "cpu")
+                    hourly_asp = self._safe_hourly_report_data(month_key, "asp")
 
                     servers = sorted(list(set(
                         [r.get("server") for r in cpu_report.get("rows", [])] +
@@ -894,7 +930,7 @@ class MonthlyReportWidget(QWidget):
                     csv_path = file_path.rsplit(".", 1)[0] + ".csv"
                     self._write_reports_to_csv(cpu_report, asp_report, csv_path)
                     if not silent:
-                        QMessageBox.information(
+                        show_information_dialog(
                             self,
                             "Exported as CSV",
                             f"openpyxl is not installed. Exported monthly report as CSV instead to:\n{csv_path}"
@@ -904,7 +940,7 @@ class MonthlyReportWidget(QWidget):
                 self._write_reports_to_csv(cpu_report, asp_report, file_path)
 
             if not silent:
-                QMessageBox.information(
+                show_information_dialog(
                     self,
                     "Export Successful",
                     f"Monthly report successfully exported to:\n{file_path}"
@@ -913,7 +949,7 @@ class MonthlyReportWidget(QWidget):
         except Exception as e:
             if silent:
                 return False
-            QMessageBox.critical(
+            show_critical_dialog(
                 self,
                 "Export Error",
                 f"An error occurred while exporting the monthly report:\n{str(e)}"
@@ -1104,22 +1140,32 @@ class MonthlyReportWidget(QWidget):
         self.refresh_report()
 
     def _filter_report_servers(self, report):
-        if not self._system_filters_initialized:
+        try:
+            initialized = getattr(self, "_system_filters_initialized", False)
+            selected_servers = getattr(self, "_selected_servers", set())
+        except RuntimeError:
+            return report
+        if not initialized:
             return report
         filtered = dict(report)
         filtered["rows"] = [
             row for row in report.get("rows", [])
-            if row.get("server") in self._selected_servers
+            if row.get("server") in selected_servers
         ]
         return filtered
 
     def _filter_hourly_servers(self, hourly_data):
-        if not self._system_filters_initialized:
+        try:
+            initialized = getattr(self, "_system_filters_initialized", False)
+            selected_servers = getattr(self, "_selected_servers", set())
+        except RuntimeError:
+            return hourly_data
+        if not initialized:
             return hourly_data
         return {
             server: values
             for server, values in hourly_data.items()
-            if server in self._selected_servers
+            if server in selected_servers
         }
 
     def _set_system_filters(self, servers):
@@ -1352,19 +1398,36 @@ class MonthlyReportWidget(QWidget):
 
         month_key = self.month_combo.currentText() or datetime.now().strftime("%Y-%m")
 
-        self.loading_overlay.setGeometry(self.rect())
-        self.loading_overlay.show()
-        self.loading_overlay.raise_()
+        try:
+            overlay = getattr(self, "loading_overlay", None)
+            if overlay is not None:
+                overlay.setGeometry(self.rect())
+                overlay.show()
+                overlay.raise_()
+        except RuntimeError:
+            pass
 
-        if self._worker is not None and self._worker.isRunning():
-            self._worker.terminate()
-            self._worker.wait()
+        current_worker = getattr(self, "_worker", None)
+        if current_worker is not None and current_worker.isRunning():
+            try:
+                if hasattr(current_worker, "requestInterruption"):
+                    current_worker.requestInterruption()
+                if hasattr(current_worker, "terminate"):
+                    current_worker.terminate()
+            except Exception:
+                pass
+            self._worker = None
 
-        self._worker = ReportWorker(self, month_key, self.cpu_chart.mode, self.asp_chart.mode)
-        self._worker.finished.connect(lambda c_rep, a_rep: self._on_report_ready(c_rep, a_rep, month_key))
+        cpu_mode = self._get_report_chart_mode("cpu_chart")
+        asp_mode = self._get_report_chart_mode("asp_chart")
+        self._worker = ReportWorker(self, month_key, cpu_mode, asp_mode)
+        self._worker.finished.connect(lambda c_rep, a_rep, wk=self._worker: self._on_report_ready(c_rep, a_rep, month_key, wk))
         self._worker.start()
 
-    def _on_report_ready(self, cpu_report, asp_report, month_key):
+    def _on_report_ready(self, cpu_report, asp_report, month_key, worker=None):
+        if worker is not None and getattr(self, "_worker", None) is not worker:
+            return
+
         servers = {
             row.get("server")
             for report in (cpu_report, asp_report)

@@ -46,9 +46,14 @@ def load_settings_backup(file_path):
         raise ValueError("This file is not an AS400 Quantum Suite settings backup")
     if payload.get("version") != _SETTINGS_BACKUP_VERSION:
         raise ValueError("Unsupported settings backup version")
-    required_mappings = ("SERVER_CONFIGS", "EXPECTED_SUBSYSTEMS", "EXPECTED_PORTS", "EMAIL_ALERTS", "LOGIN_CREDENTIALS")
-    if any(not isinstance(payload.get(key), dict) for key in required_mappings):
-        raise ValueError("Settings backup is missing required sections")
+    required_mappings = ("SERVER_CONFIGS", "EXPECTED_SUBSYSTEMS", "EXPECTED_PORTS", "EXPECTED_WEB_APPS", "EMAIL_ALERTS", "LOGIN_CREDENTIALS")
+    missing_sections = [key for key in required_mappings if key not in payload or not isinstance(payload.get(key), dict)]
+    if missing_sections:
+        for key in missing_sections:
+            if key == "EXPECTED_WEB_APPS":
+                payload[key] = {}
+            else:
+                raise ValueError("Settings backup is missing required sections")
     return payload
 
 
@@ -206,6 +211,7 @@ def save_all_configs(
     server_configs,
     expected_subsystems=None,
     expected_ports=None,
+    expected_web_apps=None,
     email_alerts=None,
     login_credentials=None,
     log_root=None,
@@ -221,6 +227,8 @@ def save_all_configs(
         expected_subsystems = config.load_expected_subsystems()
     if expected_ports is None:
         expected_ports = config.load_expected_ports()
+    if expected_web_apps is None:
+        expected_web_apps = config.load_expected_web_apps()
 
     existing = {}
     if os.path.exists(config_path):
@@ -246,6 +254,7 @@ def save_all_configs(
         "SERVER_CONFIGS": server_configs,
         "EXPECTED_SUBSYSTEMS": expected_subsystems,
         "EXPECTED_PORTS": expected_ports,
+        "EXPECTED_WEB_APPS": expected_web_apps,
     }
     for key, value in existing.items():
         if key not in data:

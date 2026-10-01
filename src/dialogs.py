@@ -1,18 +1,20 @@
 import paramiko
+import ast
 import re
 import sys
 import smtplib
 import webbrowser
 from typing import Optional, cast
 from email.message import EmailMessage
-from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from PyQt6.QtCore import QThread, QTimer, pyqtSignal, Qt, QRectF
+from PyQt6.QtGui import QColor, QCursor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QTextEdit, QComboBox,
     QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView,
     QApplication, QMessageBox, QGroupBox, QCheckBox,
-    QWidget, QTabWidget
+    QWidget, QTabWidget, QGridLayout, QProgressBar, QScrollArea, QFrame
 )
 import config
 from config import (
@@ -21,6 +23,406 @@ from config import (
     EXPECTED_PORTS,
 )
 from ui.setcreds import load_email_alerts, save_all_configs
+
+
+def show_information_dialog(parent, title, text, *args, **kwargs):
+    return QMessageBox.information(parent, title, text, *args, **kwargs)
+
+
+def show_warning_dialog(parent, title, text, *args, **kwargs):
+    return QMessageBox.warning(parent, title, text, *args, **kwargs)
+
+
+def show_critical_dialog(parent, title, text, *args, **kwargs):
+    return QMessageBox.critical(parent, title, text, *args, **kwargs)
+
+
+def ask_question_dialog(parent, title, text, *args, **kwargs):
+    return QMessageBox.question(parent, title, text, *args, **kwargs)
+
+
+class SubsystemDetailDialog(QDialog):
+    def __init__(self, server_name, subsystem_data=None, expected_key=None, timestamp_str="", parent=None):
+        super().__init__(parent)
+        self.server_name = server_name
+        self.expected_key = expected_key or server_name
+        self.subsystem_data = subsystem_data or []
+        self.setWindowTitle(f"{server_name} - Detailed Subsystem Status")
+        self.resize(850, 520)
+        app = QApplication.instance()
+        is_dark_theme = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
+        dialog_bg = "#0d1117" if is_dark_theme else "#f6f8fa"
+        table_bg = "#161b22" if is_dark_theme else "#ffffff"
+        surface = "#21262d" if is_dark_theme else "#eaeef2"
+        text = "#c9d1d9" if is_dark_theme else "#1f2328"
+        muted = "#8b949e" if is_dark_theme else "#57606a"
+        border = "#30363d" if is_dark_theme else "#d0d7de"
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {dialog_bg}; border: 2px solid #2ea043; border-radius: 12px; }}
+            QLabel {{ color: {text}; background-color: transparent; }}
+            QTableWidget {{ background-color: {table_bg}; border: 1px solid {border}; gridline-color: {border}; color: {text}; border-radius: 6px; }}
+            QHeaderView::section {{ background-color: {surface}; color: {muted}; font-weight: bold; border: none; padding: 8px; }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        title_str = f"{server_name} Detailed Subsystem Status"
+        if timestamp_str:
+            title_str += f" ({timestamp_str})"
+        title_lbl = QLabel(title_str)
+        title_lbl.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        title_lbl.setStyleSheet(f"color: {'#ffffff' if is_dark_theme else '#1f2328'}; background-color: transparent;")
+        layout.addWidget(title_lbl)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels([
+            "Subsystem Description ▲", "Status", "Current Active Jobs", "Library", "Text Description"
+        ])
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+        header = cast(QHeaderView, self.table.horizontalHeader())
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+
+        self.table.setColumnWidth(0, 180)
+        self.table.setColumnWidth(1, 100)
+        self.table.setColumnWidth(2, 140)
+        self.table.setColumnWidth(3, 110)
+
+        cast(QHeaderView, self.table.verticalHeader()).setVisible(False)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+
+        self.populate_subsystem_details()
+        layout.addWidget(self.table)
+
+    def show_centered(self):
+        if self.parent():
+            parent = self.parent()
+            top_level = cast(QWidget, parent).window() if parent is not None else None
+            if top_level is None:
+                return self.exec()
+            parent_geo = top_level.geometry()
+            x = parent_geo.x() + (parent_geo.width() - self.width()) // 2
+            y = parent_geo.y() + (parent_geo.height() - self.height()) // 2
+            self.move(x, y)
+        else:
+            screen = QApplication.primaryScreen()
+            if screen:
+                screen_geo = screen.availableGeometry()
+                x = screen_geo.x() + (screen_geo.width() - self.width()) // 2
+                y = screen_geo.y() + (screen_geo.height() - self.height()) // 2
+                self.move(x, y)
+        self.exec()
+
+    def populate_subsystem_details(self):
+        expected_list = EXPECTED_SUBSYSTEMS.get(self.expected_key, [])
+        active_dict = {}
+
+        for sub in self.subsystem_data:
+            if isinstance(sub, dict):
+                s_name = sub.get("name", "").upper()
+                active_dict[s_name] = sub
+            elif isinstance(sub, str):
+                s_name = sub.upper()
+                active_dict[s_name] = {"name": s_name, "status": "ACTIVE", "active_jobs": 0, "library": "QSYS", "description": ""}
+
+        all_display_rows = []
+        for exp_name in expected_list:
+            exp_upper = exp_name.upper()
+            if exp_upper in active_dict:
+                all_display_rows.append(active_dict[exp_upper])
+            else:
+                all_display_rows.append({
+                    "name": exp_upper,
+                    "status": "INACTIVE",
+                    "active_jobs": 0,
+                    "library": "QSYS",
+                    "description": "Subsystem Stopped / Down"
+                })
+
+        for s_name, data in active_dict.items():
+            if s_name not in [e.upper() for e in expected_list]:
+                all_display_rows.append(data)
+
+        self.table.setRowCount(len(all_display_rows))
+        for row, sub in enumerate(all_display_rows):
+            name = sub.get("name", "")
+            status = str(sub.get("status", "ACTIVE")).upper()
+            active_jobs = str(sub.get("active_jobs", 0))
+            library = sub.get("library", "")
+            desc = sub.get("description", "")
+            is_inactive = status in ["INACTIVE", "DOWN", "INACTIVE/OFF"]
+            items = [
+                QTableWidgetItem(name),
+                QTableWidgetItem(status),
+                QTableWidgetItem(active_jobs),
+                QTableWidgetItem(library),
+                QTableWidgetItem(desc)
+            ]
+            items[1].setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            items[2].setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            for col, item in enumerate(items):
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if is_inactive:
+                    item.setForeground(QColor("#f85149"))
+                    item.setBackground(QColor("#361718"))
+                    item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                self.table.setItem(row, col, item)
+
+
+class AppInfoDialog(QDialog):
+    def __init__(self, version_str: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("About this App")
+        self.setModal(True)
+        self.setFixedWidth(460)
+        self.setMinimumHeight(350)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+
+        self.info_label = QLabel(self._build_info_text(version_str))
+        self.info_label.setWordWrap(True)
+        self.info_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.info_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.addWidget(self.info_label)
+        self.setStyleSheet(
+            "QDialog { background-color: #0f172a; border: 1px solid #1e293b;"
+            " border-radius: 10px; }"
+            "QLabel { background-color: transparent; color: #f8fafc; padding: 4px;"
+            " font-size: 13px; line-height: 1.5; }"
+        )
+
+    @staticmethod
+    def _build_info_text(version_str: str) -> str:
+        return (
+            "<div style='font-family: Segoe UI, sans-serif; color: #e2e8f0;'>"
+            "System: IBM i (AS/400) Real-time Monitoring & Telemetry<br>"
+            "Developer: Reymart De Lara<br>"
+            "<h2 style='margin: 0 0 6px 0; color: #38bdf8; font-size: 18px;"
+            " font-weight: bold; letter-spacing: 0.5px;'>AS400 QUANTUM SUITE</h2>"
+            "<div style='color: #cbd5e1; font-size: 12px; margin-bottom: 12px;'>"
+            "Stack: Python | SQL<br>"
+            f"Version: {version_str}"
+            "</div>"
+            "<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'>"
+            "<div style='margin-bottom: 12px;'>"
+            "<b style='color: #f1f5f9; font-size: 13px;'>Key Features:</b>"
+            "<ul style='margin: 6px 0 0 16px; padding: 0; color: #cbd5e1;"
+            " font-size: 12px; line-height: 1.6;'>"
+            "<li>Real-Time LPAR Health Monitoring (CPU / ASP / Active Jobs)</li>"
+            "<li>Automated Backup Management & Job Duration Analytics</li>"
+            "<li>Subsystem, Network Port & Service Status Tracking</li>"
+            "<li>Monthly Historical JSON Vault & Deduplicated Logging</li>"
+            "<li>Monthly Performance Analytics & Excel Reporting</li>"
+            "</ul>"
+            "</div>"
+            "<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'>"
+            "<div style='color: #94a3b8; font-size: 11px; line-height: 1.5;'>"
+            "<b>© 2026 Reymart De Lara.</b> All Rights Reserved.<br>"
+            "<span style='color: #cbd5e1;'>Created & Developed by Reymart De Lara</span><br>"
+            "<span style='color: #64748b; font-size: 10px;'>IBM i and AS/400 are registered trademarks of IBM Corp.</span>"
+            "</div>"
+            "</div>"
+        )
+
+
+class ThemeLoadingDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setFixedSize(240, 90)
+
+        app = QApplication.instance()
+        is_dark = bool(app.property("is_dark_theme")) if app is not None else True
+        bg_clr = "#161b22" if is_dark else "#ffffff"
+        text_clr = "#ffffff" if is_dark else "#1f2328"
+        border_clr = "#30363d" if is_dark else "#d0d7de"
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {bg_clr}; border: 1px solid {border_clr}; border-radius: 8px; }}
+            QLabel {{ color: {text_clr}; font-family: "Segoe UI", sans-serif; font-size: 12px; font-weight: bold; }}
+            QProgressBar {{ border: none; background-color: {"#21262d" if is_dark else "#e1e4e8"}; height: 4px; border-radius: 2px; }}
+            QProgressBar::chunk {{ background-color: #238636; border-radius: 2px; }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label = QLabel("Switching Theme...", self)
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.label)
+        self.pbar = QProgressBar(self)
+        self.pbar.setRange(0, 0)
+        layout.addWidget(self.pbar)
+
+
+class ItemDetailDialog(QDialog):
+    def __init__(self, title_text, status_bool, command_text, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Command Detail")
+        self.setFixedSize(320, 200)
+        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+
+        app = QApplication.instance()
+        is_dark_theme = bool(app.property("is_dark_theme")) if app is not None else True
+        dialog_bg = "#161b22" if is_dark_theme else "#ffffff"
+        text_clr = "#ffffff" if is_dark_theme else "#1f2328"
+        muted_clr = "#8b949e" if is_dark_theme else "#57606a"
+        surface = "#21262d" if is_dark_theme else "#eaeef2"
+        border = "#30363d" if is_dark_theme else "#d0d7de"
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {dialog_bg}; border: 1px solid {border}; border-radius: 8px; }}
+        """)
+
+        self.reset_timer = QTimer(self)
+        self.reset_timer.setSingleShot(True)
+        self.reset_timer.timeout.connect(self.reset_button_text)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(8)
+        title_label = QLabel(title_text)
+        title_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        title_label.setStyleSheet(f"color: {text_clr}; background: transparent; border: none;")
+        layout.addWidget(title_label)
+
+        status_str = "UP" if status_bool else "DOWN"
+        status_color = "#3fb950" if status_bool else "#f85149"
+        status_label = QLabel(f"Status: {status_str}")
+        status_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        status_label.setStyleSheet(f"color: {status_color}; background: transparent; border: none;")
+        layout.addWidget(status_label)
+        cmd_label = QLabel(f"Cmd: {command_text}")
+        cmd_label.setFont(QFont("Consolas", 9))
+        cmd_label.setWordWrap(True)
+        cmd_label.setStyleSheet(f"color: {muted_clr}; background: transparent; border: none;")
+        layout.addWidget(cmd_label)
+        layout.addStretch()
+
+        self.copy_btn = QPushButton("Copy Start Command")
+        self.copy_btn.setFixedHeight(30)
+        self.copy_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.copy_btn.setStyleSheet(f"""
+            QPushButton {{ background-color: {surface}; color: {text_clr}; border: 1px solid {border}; border-radius: 6px; font-weight: bold; }}
+            QPushButton:hover {{ background-color: {border}; color: {'#ffffff' if is_dark_theme else '#1f2328'}; }}
+        """)
+        self.copy_btn.clicked.connect(lambda: self.copy_command(command_text))
+        layout.addWidget(self.copy_btn)
+
+    def show_smart(self):
+        cursor_pos = QCursor.pos()
+        screen = QApplication.screenAt(cursor_pos) or QApplication.primaryScreen()
+        if screen is None:
+            self.exec()
+            return
+        screen_geo = screen.availableGeometry()
+        dialog_w = self.width()
+        dialog_h = self.height()
+        x = cursor_pos.x() - (dialog_w // 2)
+        y = cursor_pos.y() - (dialog_h // 2)
+        margin = 10
+        x = max(screen_geo.left() + margin, min(x, screen_geo.right() - dialog_w - margin))
+        y = max(screen_geo.top() + margin, min(y, screen_geo.bottom() - dialog_h - margin))
+        self.move(x, y)
+        self.exec()
+
+    def copy_command(self, cmd):
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(cmd)
+        self.copy_btn.setText("✓ Copied!")
+        self.reset_timer.start(1500)
+
+    def reset_button_text(self):
+        if hasattr(self, "copy_btn") and self.copy_btn:
+            self.copy_btn.setText("Copy Start Command")
+
+    def reject(self):
+        if hasattr(self, "reset_timer"):
+            self.reset_timer.stop()
+        super().reject()
+
+
+class SubsystemStatusDialog(QDialog):
+    def __init__(self, lpar_name, subsystems, is_dark_theme, title_font, parent=None):
+        super().__init__(parent)
+        self.has_items = False
+        self.setWindowTitle(f"Subsystem Status - {lpar_name}")
+        self.setMinimumWidth(480)
+        dialog_bg = "#161b22" if is_dark_theme else "#ffffff"
+        dialog_text = "#c9d1d9" if is_dark_theme else "#1f2328"
+        self.setStyleSheet(f"QDialog {{ background-color: {dialog_bg}; color: {dialog_text}; }}")
+
+        all_display_items = []
+        for sub in subsystems:
+            sub_name = ""
+            status = "ACTIVE"
+            if isinstance(sub, dict):
+                sub_name = sub.get("name", "")
+                status = str(sub.get("status", "ACTIVE")).upper()
+            elif isinstance(sub, str):
+                s_str = sub.strip()
+                if s_str.startswith("{") and s_str.endswith("}"):
+                    try:
+                        parsed = ast.literal_eval(s_str)
+                        if isinstance(parsed, dict):
+                            sub_name = parsed.get("name", "")
+                            status = str(parsed.get("status", "ACTIVE")).upper()
+                    except Exception:
+                        sub_name = s_str
+                else:
+                    sub_name = s_str
+            else:
+                sub_name = str(sub)
+            clean_name = str(sub_name).strip().upper()
+            if clean_name:
+                all_display_items.append((clean_name, status in ["INACTIVE", "DOWN", "INACTIVE/OFF", "OFF"]))
+
+        if not all_display_items:
+            return
+        self.has_items = True
+
+        layout = QVBoxLayout(self)
+        title_label = QLabel(f"Subsystems status on {lpar_name}:")
+        title_label.setFont(title_font)
+        title_label.setStyleSheet(
+            "color: #ffffff; margin-bottom: 8px;"
+            if is_dark_theme
+            else "color: #1f2328; margin-bottom: 8px;"
+        )
+        layout.addWidget(title_label)
+        grid_widget = QWidget()
+        grid = QGridLayout(grid_widget)
+        grid.setSpacing(6)
+        for idx, (sub_name, is_down) in enumerate(all_display_items):
+            if is_down:
+                badge_style = (
+                    "background-color: #3c1618; color: #f85149; border: 1px solid #f85149; "
+                    "border-radius: 4px; padding: 4px 8px; font-weight: bold; font-size: 11px;"
+                )
+                badge_text = f"[DOWN] {sub_name}"
+            else:
+                badge_style = (
+                    "background-color: #0d281e; color: #3fb950; border: 1px solid #1e4b33; "
+                    "border-radius: 4px; padding: 4px 8px; font-weight: bold; font-size: 11px;"
+                )
+                badge_text = f"[ACTIVE] {sub_name}"
+            badge = QLabel(badge_text)
+            badge.setStyleSheet(badge_style)
+            grid.addWidget(badge, idx // 3, idx % 3)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(grid_widget)
+        layout.addWidget(scroll)
 
 
 class ActiveJobTableItem(QTableWidgetItem):
@@ -123,6 +525,483 @@ class ActiveJobsDialog(QDialog):
                     ActiveJobTableItem(str(value), sort_value),
                 )
         self.table.setSortingEnabled(True)
+
+
+class StoragePoolDonutCanvas(QWidget):
+    COLORS = ("#7caf50", "#d5bd30", "#4169d8", "#df8b2e", "#d95462", "#41a6a6")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        app = QApplication.instance()
+        is_dark = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
+        self.background_color = QColor("#161b22" if is_dark else "#ffffff")
+        self.entries = []
+        self.value_key = ""
+        self.loaded = False
+        self.setMinimumHeight(170)
+
+    def set_data(self, entries, value_key, loaded):
+        self.entries = [entry for entry in entries if isinstance(entry, dict)]
+        self.value_key = value_key
+        self.loaded = loaded
+        self.update()
+
+    def paintEvent(self, a0):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        values = []
+        for entry in self.entries:
+            try:
+                value = float(entry.get(self.value_key, 0) or 0)
+            except (TypeError, ValueError):
+                value = 0.0
+            if value > 0:
+                values.append((entry, value))
+
+        total = sum(value for _, value in values)
+        if total <= 0:
+            message = "No pool data" if self.loaded else "Gathering data..."
+            painter.setPen(self.palette().color(self.foregroundRole()))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, message)
+            return
+
+        diameter = min(self.width() * 0.55, self.height() - 12)
+        diameter = max(80.0, diameter)
+        left = (self.width() - diameter) / 2
+        top = (self.height() - diameter) / 2
+        pie_rect = QRectF(left, top, diameter, diameter)
+        start_angle = 90 * 16
+        for index, (_, value) in enumerate(values):
+            span_angle = round(value / total * 360 * 16)
+            painter.setPen(QPen(self.background_color, 1.5))
+            painter.setBrush(QColor(self.COLORS[index % len(self.COLORS)]))
+            painter.drawPie(pie_rect, start_angle, span_angle)
+            start_angle += span_angle
+
+        hole_size = diameter * 0.55
+        hole_rect = QRectF(
+            pie_rect.center().x() - hole_size / 2,
+            pie_rect.center().y() - hole_size / 2,
+            hole_size,
+            hole_size,
+        )
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self.background_color)
+        painter.drawEllipse(hole_rect)
+
+
+class StoragePoolDonutChart(QGroupBox):
+    def __init__(self, title, value_key, parent=None):
+        super().__init__(title, parent)
+        self.value_key = value_key
+        self.entries = []
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 6)
+        layout.setSpacing(3)
+        self.canvas = StoragePoolDonutCanvas(self)
+        layout.addWidget(self.canvas, stretch=1)
+        self.legend_layout = QHBoxLayout()
+        self.legend_layout.setContentsMargins(0, 0, 0, 0)
+        self.legend_layout.setSpacing(8)
+        layout.addLayout(self.legend_layout)
+
+    def set_data(self, entries, loaded):
+        self.entries = [entry for entry in entries if isinstance(entry, dict)]
+        self.canvas.set_data(self.entries, self.value_key, loaded)
+        while self.legend_layout.count():
+            item = self.legend_layout.takeAt(0)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.deleteLater()
+        for index, entry in enumerate(self.entries):
+            swatch = QWidget()
+            swatch.setFixedSize(8, 8)
+            swatch.setStyleSheet(
+                f"background-color: {StoragePoolDonutCanvas.COLORS[index % len(StoragePoolDonutCanvas.COLORS)]};"
+            )
+            label = QLabel(str(entry.get("pool_name", "")))
+            label.setToolTip(f"{entry.get('pool_name', '')}: {entry.get(self.value_key, 0)}")
+            self.legend_layout.addWidget(swatch)
+            self.legend_layout.addWidget(label)
+        self.legend_layout.addStretch()
+
+
+class ObjectStatisticsDialog(QDialog):
+    COLUMNS = [
+        ("OBJECT_NAME", "object_name"),
+        ("LIBRARY", "library"),
+        ("OBJECT_TYPE", "object_type"),
+        ("ATTRIBUTE", "attribute"),
+        ("SIZE_GB", "size_gb"),
+        ("PCT_OF_ASP", "pct_of_asp"),
+        ("DEFINER", "definer"),
+    ]
+
+    def __init__(
+        self,
+        server_name,
+        rows=None,
+        error="",
+        loaded=False,
+        updated_at="",
+        storage_pools=None,
+        pool_threads=None,
+        parent=None,
+        top_temporary_storage_jobs=None,
+        top_temporary_storage_jobs_error="",
+        top_temporary_storage_jobs_loaded=None,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle(f"{server_name} - System Memory & ASP Storage")
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen:
+            geometry = screen.availableGeometry()
+            self.resize(int(geometry.width() * 0.5), int(geometry.height() * 0.75))
+        else:
+            self.resize(1080, 620)
+
+        app = QApplication.instance()
+        is_dark = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
+        dialog_bg = "#0d1117" if is_dark else "#f6f8fa"
+        surface = "#161b22" if is_dark else "#ffffff"
+        header_bg = "#21262d" if is_dark else "#eaeef2"
+        text = "#c9d1d9" if is_dark else "#1f2328"
+        muted = "#8b949e" if is_dark else "#57606a"
+        border = "#30363d" if is_dark else "#d0d7de"
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {dialog_bg}; color: {text}; }}
+            QTableWidget {{ background-color: {surface}; color: {text}; gridline-color: {border}; border: 1px solid {border}; }}
+            QTableWidget::item {{ color: {text}; padding: 6px; }}
+            QTableWidget::item:selected {{ background-color: #1f6feb; color: #ffffff; }}
+            QHeaderView::section {{ background-color: {header_bg}; color: {muted}; padding: 8px; border: none; border-bottom: 1px solid {border}; }}
+        """)
+
+        layout = QVBoxLayout(self)
+        status_layout = QHBoxLayout()
+        self.status_label = QLabel()
+        status_layout.addWidget(self.status_label)
+        status_layout.addStretch()
+        self.last_update_label = QLabel()
+        self.last_update_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        status_layout.addWidget(self.last_update_label)
+        pool_charts_layout = QHBoxLayout()
+        pool_charts_layout.setSpacing(8)
+        self.pool_size_chart = StoragePoolDonutChart("Pool current size", "current_size_mb", self)
+        self.pool_threads_chart = StoragePoolDonutChart("Number of threads", "current_threads", self)
+        pool_charts_layout.addWidget(self.pool_size_chart, stretch=1)
+        pool_charts_layout.addWidget(self.pool_threads_chart, stretch=1)
+        layout.addLayout(pool_charts_layout)
+        self.temp_storage_title = QLabel("Top 50 Jobs by Temporary Storage")
+        self.temp_storage_status_label = QLabel()
+        self.temp_storage_table = QTableWidget()
+        self.temp_storage_table.setColumnCount(5)
+        self.temp_storage_table.setHorizontalHeaderLabels([
+            "JOB_NAME", "USER_NAME", "TEMP_STORAGE_MB", "TEMP_STORAGE_GB", "PCT_OF_ASP"
+        ])
+        self.temp_storage_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.temp_storage_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.temp_storage_table.setWordWrap(False)
+        self.temp_storage_table.setAlternatingRowColors(True)
+        self.temp_storage_table.setMaximumHeight(230)
+        cast(QHeaderView, self.temp_storage_table.verticalHeader()).setVisible(False)
+        temp_header = cast(QHeaderView, self.temp_storage_table.horizontalHeader())
+        temp_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        temp_header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.temp_storage_title)
+        layout.addWidget(self.temp_storage_status_label)
+        layout.addWidget(self.temp_storage_table)
+        self.status_layout = status_layout
+        layout.addLayout(self.status_layout)
+        self.table = QTableWidget()
+        self.table.setColumnCount(len(self.COLUMNS))
+        self.table.setHorizontalHeaderLabels([label for label, _ in self.COLUMNS])
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setWordWrap(False)
+        self.table.setAlternatingRowColors(True)
+        cast(QHeaderView, self.table.verticalHeader()).setVisible(False)
+        header = cast(QHeaderView, self.table.horizontalHeader())
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.table)
+        self.update_data(rows or [], error, loaded, updated_at, storage_pools or [], pool_threads or [])
+        self.update_temporary_storage_jobs(
+            top_temporary_storage_jobs or [],
+            top_temporary_storage_jobs_error,
+            loaded if top_temporary_storage_jobs_loaded is None else top_temporary_storage_jobs_loaded,
+        )
+
+    def update_data(
+        self, rows, error="", loaded=False, updated_at="", storage_pools=None,
+        pool_threads=None, top_temporary_storage_jobs=None,
+        top_temporary_storage_jobs_error="",
+    ):
+        self.last_update_label.setText(
+            f"Updates every 3 hours | Last update: {updated_at or 'Not available'}"
+        )
+        self.pool_size_chart.set_data(storage_pools or [], loaded)
+        self.pool_threads_chart.set_data(pool_threads or [], loaded)
+        if top_temporary_storage_jobs is not None or top_temporary_storage_jobs_error:
+            self.update_temporary_storage_jobs(
+                top_temporary_storage_jobs or [],
+                top_temporary_storage_jobs_error,
+                loaded,
+            )
+
+        file_rows = [row for row in rows if isinstance(row, dict)]
+        if error and file_rows:
+            self.status_label.setText(f"Showing cached data; refresh failed: {error}")
+        elif error:
+            self.status_label.setText(f"Could not load file statistics: {error}")
+        elif not loaded:
+            self.status_label.setText("Gathering data...")
+        elif not file_rows:
+            self.status_label.setText("No object statistics found.")
+        else:
+            self.status_label.setText(f"{len(file_rows):,} objects")
+
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(len(file_rows))
+        for row_index, file_row in enumerate(file_rows):
+            for column_index, (_, key) in enumerate(self.COLUMNS):
+                value = file_row.get(key, "")
+                sort_value = None
+                if key in {"size_gb", "pct_of_asp"}:
+                    try:
+                        sort_value = float(value)
+                        decimals = 2 if key == "size_gb" else 4
+                        value = f"{sort_value:.{decimals}f}"
+                        if key == "pct_of_asp":
+                            value += "%"
+                    except (TypeError, ValueError):
+                        value = str(value)
+                item = ActiveJobTableItem(str(value), sort_value)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(row_index, column_index, item)
+        self.table.setSortingEnabled(True)
+        if file_rows:
+            self.table.sortItems(4, Qt.SortOrder.DescendingOrder)
+
+    def update_temporary_storage_jobs(self, jobs, error="", loaded=False):
+        temporary_jobs = [row for row in (jobs or []) if isinstance(row, dict)]
+        if error:
+            self.temp_storage_status_label.setText(
+                f"Could not load active job storage: {error}"
+            )
+        elif not loaded:
+            self.temp_storage_status_label.setText("Gathering active job storage...")
+        elif not temporary_jobs:
+            self.temp_storage_status_label.setText("No active job storage data found.")
+        else:
+            self.temp_storage_status_label.clear()
+        self.temp_storage_status_label.setVisible(bool(self.temp_storage_status_label.text()))
+        self.temp_storage_table.setRowCount(len(temporary_jobs))
+        for row_index, job in enumerate(temporary_jobs):
+            values = (
+                job.get("job_name", ""),
+                job.get("user_name", ""),
+                job.get("temp_storage_mb", 0),
+                job.get("temp_storage_gb", 0.0),
+                job.get("pct_of_asp", ""),
+            )
+            for column_index, value in enumerate(values):
+                if column_index == 2:
+                    try:
+                        value = f"{float(value):,.0f}"
+                    except (TypeError, ValueError):
+                        value = str(value)
+                elif column_index == 3:
+                    try:
+                        value = f"{float(value):,.2f}"
+                    except (TypeError, ValueError):
+                        value = str(value)
+                item = ActiveJobTableItem(str(value).strip())
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.temp_storage_table.setItem(row_index, column_index, item)
+
+
+class TopCpuJobsDialog(QDialog):
+    COLUMNS = [
+        ("JOB_NAME", "job_name"),
+        ("AUTHORIZATION_NAME", "authorization_name"),
+        ("CPU_TIME", "cpu_time"),
+        ("ELAPSED_CPU_PERCENTAGE", "elapsed_cpu_percentage"),
+        ("RUN_PRIORITY", "run_priority"),
+        ("JOB_STATUS", "job_status"),
+    ]
+
+    def __init__(self, server_name, jobs=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"{server_name} - Top CPU Jobs")
+        screen = self.screen() or QApplication.primaryScreen()
+        dialog_width = int(screen.availableGeometry().width() * 0.9) if screen else 1080
+        self.resize(dialog_width, 520)
+        app = QApplication.instance()
+        is_dark = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
+        dialog_bg = "#0d1117" if is_dark else "#f6f8fa"
+        surface = "#161b22" if is_dark else "#ffffff"
+        header_bg = "#21262d" if is_dark else "#eaeef2"
+        text = "#c9d1d9" if is_dark else "#1f2328"
+        muted = "#8b949e" if is_dark else "#57606a"
+        border = "#30363d" if is_dark else "#d0d7de"
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {dialog_bg}; color: {text}; }}
+            QTableWidget {{ background-color: {surface}; color: {text}; gridline-color: {border}; border: 1px solid {border}; }}
+            QTableWidget::item {{ color: {text}; padding: 6px; }}
+            QTableWidget::item:selected {{ background-color: #1f6feb; color: #ffffff; }}
+            QHeaderView::section {{ background-color: {header_bg}; color: {muted}; padding: 8px; border: none; border-bottom: 1px solid {border}; }}
+        """)
+        layout = QVBoxLayout(self)
+        self.table = QTableWidget()
+        self.table.setColumnCount(len(self.COLUMNS))
+        self.table.setHorizontalHeaderLabels([label for label, _ in self.COLUMNS])
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setWordWrap(False)
+        self.table.setAlternatingRowColors(True)
+        cast(QHeaderView, self.table.verticalHeader()).setVisible(False)
+        self.table.setSortingEnabled(True)
+        header = cast(QHeaderView, self.table.horizontalHeader())
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.table)
+        self.update_jobs(jobs or [])
+
+    def update_jobs(self, jobs):
+        top_jobs = sorted(
+            (
+                job for job in jobs
+                if isinstance(job, dict)
+                and _numeric_sort_value(job.get("elapsed_cpu_percentage")) > 0
+            ),
+            key=lambda job: _numeric_sort_value(job.get("elapsed_cpu_percentage")),
+            reverse=True,
+        )
+        self.setWindowTitle(f"{self.windowTitle().split(' - ')[0]} - Top CPU Jobs ({len(top_jobs)})")
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(len(top_jobs))
+        for row_index, job in enumerate(top_jobs):
+            for column_index, (_, key) in enumerate(self.COLUMNS):
+                value = job.get(key, "")
+                sort_value = _numeric_sort_value(value) if key in {"cpu_time", "elapsed_cpu_percentage", "run_priority"} else None
+                if key == "elapsed_cpu_percentage" and value != "":
+                    value = f"{value}%"
+                item = ActiveJobTableItem(str(value), sort_value)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.table.setItem(row_index, column_index, item)
+        self.table.setSortingEnabled(True)
+
+
+def _numeric_sort_value(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+class WebAppJobsDialog(QDialog):
+    COLUMNS = [
+        "Web App",
+        "Job Number / Job User / Job Name",
+        "JOB_STATUS",
+        "TEMPORARY_STORAGE",
+        "CPU_TIME",
+        "PORT",
+    ]
+
+    def __init__(self, server_name, web_apps=None, jobs_by_app=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"{server_name} - Web apps")
+        self.resize(1280, 620)
+
+        app = QApplication.instance()
+        is_dark = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
+        dialog_bg = "#0d1117" if is_dark else "#f6f8fa"
+        surface = "#161b22" if is_dark else "#ffffff"
+        header_bg = "#21262d" if is_dark else "#eaeef2"
+        text = "#c9d1d9" if is_dark else "#1f2328"
+        muted = "#8b949e" if is_dark else "#57606a"
+        border = "#30363d" if is_dark else "#d0d7de"
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {dialog_bg}; color: {text}; }}
+            QTableWidget {{ background-color: {surface}; color: {text}; gridline-color: {border}; border: 1px solid {border}; }}
+            QTableWidget::item {{ color: {text}; padding: 6px; }}
+            QHeaderView::section {{ background-color: {header_bg}; color: {muted}; padding: 8px; border: none; border-bottom: 1px solid {border}; }}
+        """)
+
+        layout = QVBoxLayout(self)
+        self.table = QTableWidget()
+        self.table.setColumnCount(len(self.COLUMNS))
+        self.table.setHorizontalHeaderLabels(self.COLUMNS)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setWordWrap(False)
+        self.table.setAlternatingRowColors(True)
+        cast(QHeaderView, self.table.verticalHeader()).setVisible(False)
+        header = cast(QHeaderView, self.table.horizontalHeader())
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        for column, width in enumerate((130, 340, 140, 210, 140, 100)):
+            self.table.setColumnWidth(column, width)
+        header.setStretchLastSection(True)
+        layout.addWidget(self.table)
+        self.update_data(web_apps or [], jobs_by_app or {})
+
+    def update_data(self, web_apps, jobs_by_app):
+        apps_by_name = {}
+        for app in web_apps or []:
+            if isinstance(app, dict):
+                name = str(app.get("name") or "").strip().upper()
+                if name:
+                    apps_by_name[name] = app
+
+        app_names = sorted(set(apps_by_name) | {str(name).strip().upper() for name in (jobs_by_app or {}) if str(name).strip()})
+        grouped_rows = []
+        for app_name in app_names:
+            app = apps_by_name.get(app_name, {})
+            app_jobs = (jobs_by_app or {}).get(app_name, [])
+            app_jobs = [job for job in app_jobs if isinstance(job, dict)]
+            port = app.get("port", "")
+            if not app_jobs:
+                app_jobs = [{
+                    "job_name": "No active jobs",
+                    "job_status": "",
+                    "temporary_storage": "",
+                    "cpu_time": "",
+                }]
+            grouped_rows.append((app_name, str(port), app_jobs))
+
+        self.table.setSortingEnabled(False)
+        self.table.clearContents()
+        self.table.setRowCount(sum(len(rows) for _, _, rows in grouped_rows))
+        row_index = 0
+        separator_rows = set()
+        for app_name, port, app_jobs in grouped_rows:
+            group_start = row_index
+            if group_start:
+                separator_rows.add(group_start - 1)
+            for job in app_jobs:
+                values = (
+                    app_name,
+                    job.get("job_name", ""),
+                    job.get("job_status", ""),
+                    job.get("temporary_storage", ""),
+                    job.get("cpu_time", ""),
+                    port,
+                )
+                for column, value in enumerate(values):
+                    if column in (0, 5) and row_index > group_start:
+                        continue
+                    item = QTableWidgetItem(str(value))
+                    if column in (0, 5):
+                        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    self.table.setItem(row_index, column, item)
+                row_index += 1
+            group_size = len(app_jobs)
+            if group_size > 1:
+                self.table.setSpan(group_start, 0, group_size, 1)
+                self.table.setSpan(group_start, 5, group_size, 1)
+        self.table.separator_rows = separator_rows
+        self.table.setSortingEnabled(False)
 
 
 class TestEmailThread(QThread):

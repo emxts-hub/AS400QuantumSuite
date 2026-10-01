@@ -64,7 +64,7 @@ def main():
             dialog = AppExpirationDialog(
                 title="Application Expired",
                 message="This build of the application has expired.",
-                download_url="https://github.com/emxts-hub/monitoringtool/releases/latest"
+                download_url="https://github.com/emxts-hub/AS400QuantumSuite/releases/latest"
             )
             dialog.exec()
             sys.exit(0)

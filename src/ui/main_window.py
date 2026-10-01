@@ -3,26 +3,33 @@ import sys
 import os
 import json
 import math
+import re
+import subprocess
 import threading
 import time
 from typing import cast
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from config import APP_VERSION, APP_NAME
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from PyQt6.QtCore import Qt, QTimer, QThread, QThreadPool, QEventLoop, QCoreApplication, QPointF, QRectF, QPropertyAnimation, QAbstractAnimation, pyqtProperty, QSize, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QCursor, QIcon, QPixmap, QPainter, QPen, QPolygonF, QBrush
+from PyQt6.QtCore import Qt, QTimer, QThread, QThreadPool, QPointF, QRectF, QPropertyAnimation, QAbstractAnimation, pyqtProperty, QSize, pyqtSignal, QEvent
+from PyQt6.QtGui import QColor, QFont, QCursor, QIcon, QPixmap, QPainter, QPen, QPolygonF, QBrush, QMouseEvent
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton,
     QScrollArea, QFrame, QGridLayout, QProgressBar,
-    QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QApplication, QSizePolicy, QComboBox, QCheckBox, QStackedWidget, QPlainTextEdit, QTabWidget, QMessageBox, QFileDialog
 )
 
+import worker
 from worker import (
+    ObjectStatisticsRunnable,
     SingleLparRunnable,
+    TemporaryStorageJobsRunnable,
+    _new_connection,
     has_vpn_ip,
     reset_asp_alert_sound,
     stop_all_server_status_alerts,
@@ -31,10 +38,15 @@ from worker import (
 from ui.log_viewer import LogViewerWidget
 from ui.monthly_report import MonthlyReportWidget
 from ui.backup_manage import BackupManagementWidget
-from ui.widgets import RefreshStatusWidget, StatusBadgesWidget, SubsystemGridWidget, ThemeLoadingDialog
-from dialogs import ActiveJobsDialog, LparSettingsDialog, TestEmailThread
+from ui.widgets import RefreshStatusWidget, StatusBadgesWidget, SubsystemGridWidget
+from dialogs import (
+    ActiveJobsDialog, AppInfoDialog, LparSettingsDialog, ObjectStatisticsDialog,
+    SubsystemDetailDialog, TestEmailThread, ThemeLoadingDialog, TopCpuJobsDialog,
+    WebAppJobsDialog, ask_question_dialog, show_critical_dialog,
+    show_information_dialog, show_warning_dialog,
+)
 from version_worker import VersionCheckWorker
-from config import SERVER_CONFIGS, EXPECTED_SUBSYSTEMS, EXPECTED_PORTS, ONEDRIVE_SHAREPOINT_PATH, get_resource_path, get_config_path
+from config import SERVER_CONFIGS, EXPECTED_SUBSYSTEMS, EXPECTED_PORTS, EXPECTED_WEB_APPS, ONEDRIVE_SHAREPOINT_PATH, get_resource_path, get_config_path
 from ui.setcreds import (
     get_email_password,
     get_ibmi_password,
@@ -47,42 +59,193 @@ from ui.setcreds import (
 )
 from ui.styles import DARK_STYLESHEET, LIGHT_STYLESHEET
 
+CREDENTIAL_CHECK_TIMEOUT_SECONDS = 180
+
+
+def build_web_app_rows(active_jobs_detail, ports_data, configured_web_apps=None):
+    """Build a summary of web apps by pairing active job names with their monitored ports."""
+    jobs = active_jobs_detail or []
+    ports = ports_data or []
+    configured = configured_web_apps or []
+    if not isinstance(jobs, list):
+        jobs = []
+    if not isinstance(ports, list):
+        ports = []
+    if not isinstance(configured, list):
+        configured = []
+
+    def _normalize_entry(entry):
+        if isinstance(entry, dict):
+            name = str(entry.get("job_name") or entry.get("name") or entry.get("job") or "").strip().upper()
+            port_val = entry.get("port")
+            if not name or port_val is None:
+                return None
+            try:
+                port_num = int(port_val)
+                if not 1 <= port_num <= 65535:
+                    status = "INVALID"
+                else:
+                    status = "DOWN"
+                return {"name": name, "port": port_num, "status": status}
+            except (TypeError, ValueError):
+                return None
+        if isinstance(entry, str):
+            item = entry.strip()
+            if not item:
+                return None
+            if ":" in item:
+                name_part, port_part = item.split(":", 1)
+                try:
+                    port_num = int(port_part.strip())
+                    status = "DOWN" if 1 <= port_num <= 65535 else "INVALID"
+                    return {"name": name_part.strip().upper(), "port": port_num, "status": status}
+                except ValueError:
+                    return None
+        return None
+
+    configured_rows = []
+    for item in configured:
+        parsed = _normalize_entry(item)
+        if parsed:
+            configured_rows.append(parsed)
+
+    verified_ports = {}
+    for item in ports:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or item.get("service") or "").strip().upper()
+        try:
+            port_num = int(item.get("port"))
+        except (TypeError, ValueError):
+            continue
+        if name:
+            verified_ports[(name, port_num)] = item
+
+    for row in configured_rows:
+        if row["status"] == "INVALID":
+            continue
+        port_entry = verified_ports.get((row["name"], row["port"]))
+        row["status"] = "RUNNING" if port_entry and port_entry.get("is_up") is True else "DOWN"
+
+    job_counts = {}
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        name = str(job.get("job_name") or "").strip().upper()
+        if not name:
+            continue
+        job_counts[name] = job_counts.get(name, 0) + 1
+
+    port_by_name = {}
+    for item in ports:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or item.get("service") or "").strip().upper()
+        port_num = item.get("port")
+        if name and port_num is not None:
+            try:
+                port_by_name[name] = int(port_num)
+            except (TypeError, ValueError):
+                pass
+
+    rows_by_key = {}
+    for row in configured_rows:
+        rows_by_key[(row["name"], row["port"])] = row
+
+    for app_name, count in sorted(job_counts.items()):
+        port_num = port_by_name.get(app_name)
+        port_entry = None
+        for item in ports:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or item.get("service") or "").strip().upper()
+            if name == app_name:
+                port_entry = item
+                port_num = item.get("port")
+        if port_num is None:
+            continue
+        port_num = int(port_num)
+        if not 1 <= port_num <= 65535:
+            status = "INVALID"
+        else:
+            status = "RUNNING" if bool(port_entry.get("is_up", False) if isinstance(port_entry, dict) else False) else "DOWN"
+        key = (app_name, port_num)
+        rows_by_key[key] = {
+            "name": app_name,
+            "port": port_num,
+            "count": max(int(rows_by_key.get(key, {}).get("count", 0)), int(count)),
+            "status": status,
+        }
+
+    rows = sorted(rows_by_key.values(), key=lambda row: (row["name"], row["port"]))
+    for row in rows:
+        if "count" not in row:
+            row["count"] = 1
+    return rows
+
 
 class CredentialCheckThread(QThread):
     results_ready = pyqtSignal(object)
 
-    def __init__(self, server_configs, username, password):
+    def __init__(self, server_configs, username, password, timeout_seconds=CREDENTIAL_CHECK_TIMEOUT_SECONDS):
         super().__init__()
         self.server_configs = dict(server_configs)
         self.username = username
         self.password = password
+        self.timeout_seconds = timeout_seconds
+
+    @staticmethod
+    def _validate_single_server(server_name, cfg, username, password):
+        try:
+            host = cfg.get("host", "") if isinstance(cfg, dict) else str(cfg)
+            db = cfg.get("db", "*LOCAL") if isinstance(cfg, dict) else "*LOCAL"
+            worker.check_database_connection(host, db, username, password)
+            return {"status": "OK", "message": "Credentials accepted."}
+        except Exception as exc:
+            return {"status": "AUTH_ERROR", "message": str(exc)}
+
+    @staticmethod
+    def validate_server_credentials(server_configs, username, password, timeout_seconds=CREDENTIAL_CHECK_TIMEOUT_SECONDS):
+        results = {}
+        server_items = list(dict(server_configs).items())
+        if not server_items:
+            return results
+
+        deadline = time.monotonic() + timeout_seconds
+        with ThreadPoolExecutor(max_workers=min(len(server_items), 8)) as executor:
+            futures = {
+                executor.submit(CredentialCheckThread._validate_single_server, server_name, cfg, username, password): server_name
+                for server_name, cfg in server_items
+            }
+            for future in futures:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    server_name = futures[future]
+                    results[server_name] = future.result(timeout=min(remaining, 5.0))
+                except TimeoutError:
+                    server_name = futures[future]
+                    results[server_name] = {"status": "AUTH_ERROR", "message": f"Credential validation timed out after {timeout_seconds} seconds."}
+        for server_name, _ in server_items:
+            if server_name not in results:
+                results[server_name] = {"status": "AUTH_ERROR", "message": f"Credential validation timed out after {timeout_seconds} seconds."}
+        return results
 
     def run(self):
-        results = {}
-        for server_name, cfg in self.server_configs.items():
-            conn = None
-            try:
-                host = cfg.get("host", "") if isinstance(cfg, dict) else str(cfg)
-                db = cfg.get("db", "*LOCAL") if isinstance(cfg, dict) else "*LOCAL"
-                conn = __import__("worker")._new_connection(host, db, self.username, self.password)
-                cursor = conn.cursor()
-                cursor.execute("SELECT 1 FROM SYSIBM.SYSDUMMY1")
-                cursor.fetchone()
-                results[server_name] = {"status": "OK", "message": "Credentials accepted."}
-            except Exception as exc:
-                results[server_name] = {"status": "AUTH_ERROR", "message": str(exc)}
-            finally:
-                if conn is not None:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-        self.results_ready.emit(results)
+        self.results_ready.emit(
+            self.validate_server_credentials(
+                self.server_configs,
+                self.username,
+                self.password,
+                timeout_seconds=self.timeout_seconds,
+            )
+        )
 
 
 class DualSparklineWidget(QWidget):
     """Stacked dual sparkline chart displaying CPU (Upper) and ASP (Lower) trends."""
-    def __init__(self, max_points=45, parent=None):
+    def __init__(self, max_points=100, parent=None):
         super().__init__(parent)
         self.max_points = max_points
         self.cpu_history = deque(maxlen=max_points)
@@ -164,156 +327,15 @@ class DualSparklineWidget(QWidget):
             self._draw_subgraph(painter, self.asp_history, asp_rect, asp_color)
 
 
-class SubsystemDetailDialog(QDialog):
-    def __init__(self, server_name, subsystem_data=None, expected_key=None, timestamp_str="", parent=None):
-        super().__init__(parent)
-        self.server_name = server_name
-        self.expected_key = expected_key or server_name
-        self.subsystem_data = subsystem_data or []
-        self.setWindowTitle(f"{server_name} - Detailed Subsystem Status")
-        self.resize(850, 520)
-        app = QApplication.instance()
-        is_dark_theme = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
-        dialog_bg = "#0d1117" if is_dark_theme else "#f6f8fa"
-        table_bg = "#161b22" if is_dark_theme else "#ffffff"
-        surface = "#21262d" if is_dark_theme else "#eaeef2"
-        text = "#c9d1d9" if is_dark_theme else "#1f2328"
-        muted = "#8b949e" if is_dark_theme else "#57606a"
-        border = "#30363d" if is_dark_theme else "#d0d7de"
-        self.setStyleSheet(f"""
-            QDialog {{ background-color: {dialog_bg}; border: 2px solid #2ea043; border-radius: 12px; }}
-            QLabel {{ color: {text}; background-color: transparent; }}
-            QTableWidget {{ background-color: {table_bg}; border: 1px solid {border}; gridline-color: {border}; color: {text}; border-radius: 6px; }}
-            QHeaderView::section {{ background-color: {surface}; color: {muted}; font-weight: bold; border: none; padding: 8px; }}
-        """)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        title_str = f"{server_name} Detailed Subsystem Status"
-        if timestamp_str:
-            title_str += f" ({timestamp_str})"
-        title_lbl = QLabel(title_str)
-        title_lbl.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-        title_lbl.setStyleSheet(f"color: {'#ffffff' if is_dark_theme else '#1f2328'}; background-color: transparent;")
-        layout.addWidget(title_lbl)
-
-        self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels([
-            "Subsystem Description ▲", "Status", "Current Active Jobs", "Library", "Text Description"
-        ])
-        
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        
-        header = cast(QHeaderView, self.table.horizontalHeader())
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        
-        self.table.setColumnWidth(0, 180)
-        self.table.setColumnWidth(1, 100)
-        self.table.setColumnWidth(2, 140)
-        self.table.setColumnWidth(3, 110)
-        
-        cast(QHeaderView, self.table.verticalHeader()).setVisible(False)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-
-        self.populate_subsystem_details()
-        layout.addWidget(self.table)
-
-    def show_centered(self):
-        if self.parent():
-            parent = self.parent()
-            top_level = cast(QWidget, parent).window() if parent is not None else None
-            if top_level is None:
-                return self.exec()
-            parent_geo = top_level.geometry()
-            
-            x = parent_geo.x() + (parent_geo.width() - self.width()) // 2
-            y = parent_geo.y() + (parent_geo.height() - self.height()) // 2
-            self.move(x, y)
-        else:
-            screen = QApplication.primaryScreen()
-            if screen:
-                screen_geo = screen.availableGeometry()
-                x = screen_geo.x() + (screen_geo.width() - self.width()) // 2
-                y = screen_geo.y() + (screen_geo.height() - self.height()) // 2
-                self.move(x, y)
-                
-        self.exec()
-
-    def populate_subsystem_details(self):
-        expected_list = EXPECTED_SUBSYSTEMS.get(self.expected_key, [])
-        active_dict = {}
-
-        for sub in self.subsystem_data:
-            if isinstance(sub, dict):
-                s_name = sub.get("name", "").upper()
-                active_dict[s_name] = sub
-            elif isinstance(sub, str):
-                s_name = sub.upper()
-                active_dict[s_name] = {"name": s_name, "status": "ACTIVE", "active_jobs": 0, "library": "QSYS", "description": ""}
-
-        all_display_rows = []
-        
-        for exp_name in expected_list:
-            exp_upper = exp_name.upper()
-            if exp_upper in active_dict:
-                all_display_rows.append(active_dict[exp_upper])
-            else:
-                all_display_rows.append({
-                    "name": exp_upper,
-                    "status": "INACTIVE",
-                    "active_jobs": 0,
-                    "library": "QSYS",
-                    "description": "Subsystem Stopped / Down"
-                })
-
-        for s_name, data in active_dict.items():
-            if s_name not in [e.upper() for e in expected_list]:
-                all_display_rows.append(data)
-
-        self.table.setRowCount(len(all_display_rows))
-        
-        for row, sub in enumerate(all_display_rows):
-            name = sub.get("name", "")
-            status = str(sub.get("status", "ACTIVE")).upper()
-            active_jobs = str(sub.get("active_jobs", 0))
-            library = sub.get("library", "")
-            desc = sub.get("description", "")
-
-            is_inactive = status in ["INACTIVE", "DOWN", "INACTIVE/OFF"]
-
-            items = [
-                QTableWidgetItem(name),
-                QTableWidgetItem(status),
-                QTableWidgetItem(active_jobs),
-                QTableWidgetItem(library),
-                QTableWidgetItem(desc)
-            ]
-
-            items[1].setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            items[2].setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-
-            for col, item in enumerate(items):
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                if is_inactive:
-                    item.setForeground(QColor("#f85149"))
-                    item.setBackground(QColor("#361718"))
-                    item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-                self.table.setItem(row, col, item)
-
-
 class LinearGauge(QWidget):
+    clicked = pyqtSignal()
+
     def __init__(self, title, initial_value=0.0, parent=None, decimals=1):
         super().__init__(parent)
         app = QApplication.instance()
         self.is_dark_theme = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
         self.is_uncapped = False
+        self.clickable = False
         self.decimals = int(decimals)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -338,8 +360,30 @@ class LinearGauge(QWidget):
         self.pbar.setFixedHeight(8)
         self.pbar.setTextVisible(False)
         layout.addWidget(self.pbar)
+        for widget in (self, self.title_label, self.val_label, self.pbar):
+            widget.installEventFilter(self)
 
         self.set_value(initial_value)
+
+    def set_clickable(self, clickable, tooltip=None):
+        self.clickable = bool(clickable)
+        self.click_tooltip = tooltip or "Click to view the top CPU-consuming jobs"
+        cursor = QCursor(Qt.CursorShape.PointingHandCursor if self.clickable else Qt.CursorShape.ArrowCursor)
+        tooltip = self.click_tooltip if self.clickable else ""
+        for widget in (self, self.title_label, self.val_label, self.pbar):
+            widget.setCursor(cursor)
+            widget.setToolTip(tooltip)
+
+    def eventFilter(self, a0, a1):
+        if (
+            self.clickable
+            and isinstance(a1, QMouseEvent)
+            and a1.type() == QEvent.Type.MouseButtonRelease
+            and a1.button() == Qt.MouseButton.LeftButton
+        ):
+            self.clicked.emit()
+            return True
+        return super().eventFilter(a0, a1)
 
     def set_value(self, val, is_uncapped=False):
         val_float = float(val)
@@ -349,10 +393,13 @@ class LinearGauge(QWidget):
         display_value = f"{val_float:.{self.decimals}f}"
         if self.is_uncapped and val_float > 100.0:
             self.val_label.setText(f"{display_value}% ⚡")
-            self.setToolTip("Uncapped CPU capacity in use (borrowing processing power)")
+            value_tooltip = "Uncapped CPU capacity in use (borrowing processing power)"
         else:
             self.val_label.setText(f"{display_value}%")
-            self.setToolTip("")
+            value_tooltip = ""
+        tooltips = [text for text in (self.click_tooltip if self.clickable else "", value_tooltip) if text]
+        for widget in (self, self.title_label, self.val_label, self.pbar):
+            widget.setToolTip("\n".join(tooltips))
 
         self.pbar.setValue(min(100, int(val_float)))
 
@@ -401,8 +448,20 @@ class LparCardWidget(QFrame):
         self.current_asp = 0.0
         self.current_jobs = 0
         self.current_active_jobs_detail = []
+        self.current_object_statistics = []
+        self.current_object_statistics_error = ""
+        self.current_object_statistics_loaded = False
+        self.current_object_statistics_updated_at = ""
+        self.current_storage_pools = []
+        self.current_pool_threads = []
+        self.current_top_temporary_storage_jobs = []
+        self.current_top_temporary_storage_jobs_error = ""
+        self.current_top_temporary_storage_jobs_loaded = False
+        self.current_web_app_jobs_detail = {}
         self.current_subsystems_data = []
         self.current_ports_data = []
+        self.current_webapps_data = []
+        self.current_web_app_ports = []
         self.config_key = server_name
         self.detail_expanded = True
         self.last_success_ts = None
@@ -423,6 +482,9 @@ class LparCardWidget(QFrame):
         self._alert_animation.setEndValue(0.0)
         self._alert_animation.setLoopCount(-1)
         self.active_jobs_dialog = None
+        self.cpu_jobs_dialog = None
+        self.object_statistics_dialog = None
+        self.webapp_jobs_dialog = None
         
         self.setMinimumWidth(0)
         self.setFixedHeight(350)
@@ -460,12 +522,16 @@ class LparCardWidget(QFrame):
         gauges_layout = QHBoxLayout()
         gauges_layout.setSpacing(8)
         self.cpu_gauge = LinearGauge("CPU", decimals=1)
+        self.cpu_gauge.set_clickable(True)
+        self.cpu_gauge.clicked.connect(self.show_top_cpu_jobs)
         self.asp_gauge = LinearGauge("ASP", decimals=2)
+        self.asp_gauge.set_clickable(True, "Click to view the largest ASP objects")
+        self.asp_gauge.clicked.connect(self.show_object_statistics)
         gauges_layout.addWidget(self.cpu_gauge, stretch=1)
         gauges_layout.addWidget(self.asp_gauge, stretch=1)
         self.main_layout.addLayout(gauges_layout)
 
-        self.sparkline = DualSparklineWidget(max_points=35)
+        self.sparkline = DualSparklineWidget(max_points=100)
         self.main_layout.addWidget(self.sparkline)
 
         jobs_layout = QHBoxLayout()
@@ -489,17 +555,25 @@ class LparCardWidget(QFrame):
         self.health_label.setWordWrap(True)
         self.main_layout.addWidget(self.health_label)
 
-        sub_header = QHBoxLayout()
-        self.subsystems_title_label = QLabel("Subsystems")
-        self.subsystems_title_label.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        sub_header.addWidget(self.subsystems_title_label)
-        sub_header.addStretch()
-        self.main_layout.addLayout(sub_header)
-
         self.subsystem_container = QWidget()
         self.subsys_layout = QVBoxLayout(self.subsystem_container)
         self.subsys_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.addWidget(self.subsystem_container)
+
+        self.webapps_header_layout = QHBoxLayout()
+        self.webapps_title_label = QLabel("Web Applications")
+        self.webapps_title_label.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        self.webapps_header_layout.addWidget(self.webapps_title_label)
+        self.webapps_header_layout.addStretch()
+        self.webapps_count_label = QLabel("• 0 / 0 Running")
+        self.webapps_count_label.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        self.webapps_header_layout.addWidget(self.webapps_count_label)
+        self.webapps_expand_button = QPushButton("Expand ▼")
+        self.webapps_expand_button.setFixedSize(70, 21)
+        self.webapps_expand_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.webapps_expand_button.clicked.connect(self.show_web_apps)
+        self.webapps_header_layout.addWidget(self.webapps_expand_button)
+        self.main_layout.addLayout(self.webapps_header_layout)
 
         self.network_title_label = QLabel("Network Services")
         self.network_title_label.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
@@ -520,6 +594,17 @@ class LparCardWidget(QFrame):
                 if widget is not None:
                     widget.setParent(None)
 
+    def _refresh_webapps_widget(self, active_jobs_detail, ports, configured_web_apps=None):
+        web_apps = build_web_app_rows(active_jobs_detail, ports, configured_web_apps)
+        if not self.detail_expanded:
+            return
+
+        total = len(web_apps)
+        running = sum(1 for app in web_apps if app.get("status") == "RUNNING")
+        self.webapps_count_label.setText(f"• {running} / {total} Running")
+        self.webapps_count_label.setStyleSheet("color: #3fb950; background-color: transparent;")
+        self.current_webapps_data = web_apps
+
     def set_theme(self, is_dark_theme):
         self.is_dark_theme = is_dark_theme
         self.cpu_gauge.set_theme(is_dark_theme)
@@ -536,8 +621,17 @@ class LparCardWidget(QFrame):
             "QPushButton:hover { color: #58a6ff; }"
         )
 
-        for label in (self.jobs_title_label, self.subsystems_title_label, self.network_title_label, self.health_label):
+        for label in (
+            self.jobs_title_label,
+            self.webapps_title_label,
+            self.network_title_label,
+            self.health_label,
+        ):
             label.setStyleSheet(f"color: {label_color}; background-color: transparent;")
+        self.webapps_expand_button.setStyleSheet(
+            "QPushButton { background-color: #21262d; color: #c9d1d9; border: 1px solid #30363d; padding: 2px 8px; }"
+            "QPushButton:hover { border-color: #58a6ff; }"
+        )
 
         self.name_label.setText(self.server_name)
 
@@ -585,8 +679,140 @@ class LparCardWidget(QFrame):
         self.active_jobs_dialog.raise_()
         self.active_jobs_dialog.activateWindow()
 
+    def show_top_cpu_jobs(self):
+        if self.cpu_jobs_dialog is None:
+            self.cpu_jobs_dialog = TopCpuJobsDialog(
+                self.server_name,
+                self.current_active_jobs_detail,
+                parent=self,
+            )
+            self.cpu_jobs_dialog.finished.connect(self._clear_cpu_jobs_dialog)
+        self.cpu_jobs_dialog.update_jobs(self.current_active_jobs_detail)
+        self.cpu_jobs_dialog.show()
+        self.cpu_jobs_dialog.raise_()
+        self.cpu_jobs_dialog.activateWindow()
+
+    def show_object_statistics(self):
+        if self.object_statistics_dialog is None:
+            self.object_statistics_dialog = ObjectStatisticsDialog(
+                self.server_name,
+                rows=self.current_object_statistics,
+                error=self.current_object_statistics_error,
+                loaded=self.current_object_statistics_loaded,
+                updated_at=self.current_object_statistics_updated_at,
+                storage_pools=self.current_storage_pools,
+                pool_threads=self.current_pool_threads,
+                top_temporary_storage_jobs=self.current_top_temporary_storage_jobs,
+                top_temporary_storage_jobs_error=self.current_top_temporary_storage_jobs_error,
+                top_temporary_storage_jobs_loaded=self.current_top_temporary_storage_jobs_loaded,
+                parent=self,
+            )
+            self.object_statistics_dialog.finished.connect(self._clear_object_statistics_dialog)
+        self.object_statistics_dialog.update_data(
+            self.current_object_statistics,
+            self.current_object_statistics_error,
+            self.current_object_statistics_loaded,
+            self.current_object_statistics_updated_at,
+            self.current_storage_pools,
+            self.current_pool_threads,
+        )
+        self.object_statistics_dialog.update_temporary_storage_jobs(
+            self.current_top_temporary_storage_jobs,
+            self.current_top_temporary_storage_jobs_error,
+            self.current_top_temporary_storage_jobs_loaded,
+        )
+        self.object_statistics_dialog.show()
+        self.object_statistics_dialog.raise_()
+        self.object_statistics_dialog.activateWindow()
+
+    def set_object_statistics(self, rows, error="", loaded=False, updated_at=""):
+        if loaded or rows:
+            self.current_object_statistics = rows if isinstance(rows, list) else []
+        self.current_object_statistics_error = error
+        self.current_object_statistics_loaded = loaded or bool(self.current_object_statistics)
+        if updated_at:
+            self.current_object_statistics_updated_at = updated_at
+        if self.object_statistics_dialog is not None:
+            self.object_statistics_dialog.update_data(
+                self.current_object_statistics,
+                self.current_object_statistics_error,
+                self.current_object_statistics_loaded,
+                self.current_object_statistics_updated_at,
+                self.current_storage_pools,
+                self.current_pool_threads,
+            )
+
+    def set_top_temporary_storage_jobs(self, jobs, error="", loaded=True):
+        self.current_top_temporary_storage_jobs = jobs if isinstance(jobs, list) else []
+        self.current_top_temporary_storage_jobs_error = error
+        self.current_top_temporary_storage_jobs_loaded = loaded
+        if self.object_statistics_dialog is not None:
+            self.object_statistics_dialog.update_temporary_storage_jobs(
+                self.current_top_temporary_storage_jobs,
+                self.current_top_temporary_storage_jobs_error,
+                self.current_top_temporary_storage_jobs_loaded,
+            )
+
+    def _web_app_jobs_for_display(self):
+        jobs_by_app = {
+            str(app_name).strip().upper(): [job for job in jobs if isinstance(job, dict)]
+            for app_name, jobs in (self.current_web_app_jobs_detail or {}).items()
+            if isinstance(jobs, list)
+        }
+
+        for app in self.current_webapps_data or []:
+            if not isinstance(app, dict):
+                continue
+            app_name = str(app.get("name") or "").strip().upper()
+            if not app_name:
+                continue
+            app_jobs = jobs_by_app.setdefault(app_name, [])
+            known_names = {
+                str(job.get("job_name") or "").strip().upper()
+                for job in app_jobs
+            }
+            for job in self.current_active_jobs_detail or []:
+                if not isinstance(job, dict):
+                    continue
+                job_name = str(job.get("job_name") or "").strip()
+                if job_name.rsplit("/", 1)[-1].upper() != app_name:
+                    continue
+                if job_name.upper() not in known_names:
+                    app_jobs.append(job)
+                    known_names.add(job_name.upper())
+
+        return jobs_by_app
+
+    def show_web_apps(self):
+        jobs_by_app = self._web_app_jobs_for_display()
+        if self.webapp_jobs_dialog is None:
+            self.webapp_jobs_dialog = WebAppJobsDialog(
+                self.server_name,
+                self.current_webapps_data,
+                jobs_by_app,
+                parent=self,
+            )
+            self.webapp_jobs_dialog.finished.connect(self._clear_webapp_jobs_dialog)
+        else:
+            self.webapp_jobs_dialog.update_data(
+                self.current_webapps_data,
+                jobs_by_app,
+            )
+        self.webapp_jobs_dialog.show()
+        self.webapp_jobs_dialog.raise_()
+        self.webapp_jobs_dialog.activateWindow()
+
+    def _clear_webapp_jobs_dialog(self):
+        self.webapp_jobs_dialog = None
+
     def _clear_active_jobs_dialog(self):
         self.active_jobs_dialog = None
+
+    def _clear_cpu_jobs_dialog(self):
+        self.cpu_jobs_dialog = None
+
+    def _clear_object_statistics_dialog(self):
+        self.object_statistics_dialog = None
 
     def set_card_style(self, is_critical=False, force=False):
         key = (self.is_dark_theme, bool(is_critical))
@@ -779,6 +1005,18 @@ class LparCardWidget(QFrame):
         asp = float(data.get("asp", 0.0))
         jobs = int(data.get("jobs", 0))
         active_jobs_detail = data.get("active_jobs_detail", [])
+        object_statistics = data.get("object_statistics", self.current_object_statistics)
+        object_statistics_error = str(
+            data.get("object_statistics_error", self.current_object_statistics_error) or ""
+        )
+        object_statistics_loaded = bool(data.get("object_statistics_loaded", self.current_object_statistics_loaded))
+        object_statistics_updated_at = str(
+            data.get("object_statistics_updated_at", self.current_object_statistics_updated_at) or ""
+        )
+        storage_pools = data.get("storage_pools", self.current_storage_pools)
+        pool_threads = data.get("pool_threads", self.current_pool_threads)
+        web_app_jobs_detail = data.get("web_app_jobs_detail", {})
+        web_app_ports = data.get("web_app_ports", [])
         subsystems = data.get("subsystems", [])
         ports = data.get("ports", [])
 
@@ -790,6 +1028,14 @@ class LparCardWidget(QFrame):
             asp = last_asp
             jobs = last_jobs
             active_jobs_detail = self.current_active_jobs_detail
+            object_statistics = self.current_object_statistics
+            object_statistics_error = self.current_object_statistics_error
+            object_statistics_loaded = self.current_object_statistics_loaded
+            object_statistics_updated_at = self.current_object_statistics_updated_at
+            storage_pools = self.current_storage_pools
+            pool_threads = self.current_pool_threads
+            web_app_jobs_detail = self.current_web_app_jobs_detail
+            web_app_ports = self.current_web_app_ports
         elif status in ("ONLINE", "DEGRADED"):
             if completed_at:
                 self.last_success_ts = completed_at
@@ -812,6 +1058,14 @@ class LparCardWidget(QFrame):
             asp,
             int(jobs),
             repr(active_jobs_detail),
+            repr(object_statistics),
+            object_statistics_error,
+            object_statistics_loaded,
+            object_statistics_updated_at,
+            repr(storage_pools),
+            repr(pool_threads),
+            repr(web_app_jobs_detail),
+            repr(web_app_ports),
             repr(subsystems),
             repr(ports),
             is_uncapped,
@@ -831,6 +1085,14 @@ class LparCardWidget(QFrame):
         self.current_asp = asp
         self.current_jobs = jobs
         self.current_active_jobs_detail = active_jobs_detail if isinstance(active_jobs_detail, list) else []
+        self.current_object_statistics = object_statistics if isinstance(object_statistics, list) else []
+        self.current_object_statistics_error = object_statistics_error
+        self.current_object_statistics_loaded = object_statistics_loaded
+        self.current_object_statistics_updated_at = object_statistics_updated_at
+        self.current_storage_pools = storage_pools if isinstance(storage_pools, list) else []
+        self.current_pool_threads = pool_threads if isinstance(pool_threads, list) else []
+        self.current_web_app_jobs_detail = web_app_jobs_detail if isinstance(web_app_jobs_detail, dict) else {}
+        self.current_web_app_ports = web_app_ports if isinstance(web_app_ports, list) else []
         self.current_subsystems_data = subsystems
         self.current_ports_data = ports
 
@@ -892,9 +1154,30 @@ class LparCardWidget(QFrame):
             self.jobs_val_label.setText(jobs_text)
         if self.active_jobs_dialog is not None:
             self.active_jobs_dialog.update_jobs(self.current_active_jobs_detail)
+        if self.cpu_jobs_dialog is not None:
+            self.cpu_jobs_dialog.update_jobs(self.current_active_jobs_detail)
+        if self.object_statistics_dialog is not None:
+            self.object_statistics_dialog.update_data(
+                self.current_object_statistics,
+                self.current_object_statistics_error,
+                self.current_object_statistics_loaded,
+                self.current_object_statistics_updated_at,
+                self.current_storage_pools,
+                self.current_pool_threads,
+            )
+        if self.webapp_jobs_dialog is not None:
+            self.webapp_jobs_dialog.update_data(
+                self.current_webapps_data,
+                self._web_app_jobs_for_display(),
+            )
 
         self._sync_health_summary()
         self._refresh_subsystem_widget(self.current_subsystems_data)
+        self._refresh_webapps_widget(
+            self.current_active_jobs_detail,
+            self.current_ports_data + self.current_web_app_ports,
+            EXPECTED_WEB_APPS.get(str(self.config_key or self.server_name).strip().upper(), []),
+        )
         self._refresh_ports_widget(ports)
 
 
@@ -1105,67 +1388,7 @@ def resource_path(relative_path):
     return get_resource_path(relative_path)
 
 
-class AppInfoDialog(QDialog):
-
-    def __init__(self, version_str: str, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("About this App")
-        self.setModal(True)
-        self.setFixedWidth(460)
-        self.setMinimumHeight(350)
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-
-        self.info_label = QLabel(self._build_info_text(version_str))
-        self.info_label.setWordWrap(True)
-        self.info_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        self.info_label.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-        )
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.addWidget(self.info_label)
-
-        self.setStyleSheet(
-            "QDialog { background-color: #0f172a; border: 1px solid #1e293b;"
-            " border-radius: 10px; }"
-            "QLabel { background-color: transparent; color: #f8fafc; padding: 4px;"
-            " font-size: 13px; line-height: 1.5; }"
-        )
-
-    @staticmethod
-    def _build_info_text(version_str: str) -> str:
-        return (
-            "<div style='font-family: Segoe UI, sans-serif; color: #e2e8f0;'>"
-            "<h2 style='margin: 0 0 6px 0; color: #38bdf8; font-size: 18px;"
-            " font-weight: bold; letter-spacing: 0.5px;'>AS400 QUANTUM SUITE</h2>"
-            "<div style='color: #cbd5e1; font-size: 12px; margin-bottom: 12px;'>"
-            "<b>System:</b> IBM i (AS/400) Real-time Monitoring & Telemetry<br>"
-            "<b>Stack:</b> Python | PyQt6 | DB2 ODBC | Local JSON storage<br>"
-            f"<b>Version:</b> {version_str}"
-            "</div>"
-            "<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'>"
-            "<div style='margin-bottom: 12px;'>"
-            "<b style='color: #f1f5f9; font-size: 13px;'>Key Features:</b>"
-            "<ul style='margin: 6px 0 0 16px; padding: 0; color: #cbd5e1;"
-            " font-size: 12px; line-height: 1.6;'>"
-            "<li>Real-Time LPAR Health Monitoring (CPU / ASP / Active Jobs)</li>"
-            "<li>Automated Backup Management & Job Duration Analytics</li>"
-            "<li>Subsystem, Network Port & Service Status Tracking</li>"
-            "<li>Monthly Historical JSON Vault & Deduplicated Logging</li>"
-            "<li>Monthly Performance Analytics & Excel Reporting</li>"
-            "</ul>"
-            "</div>"
-            "<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'>"
-            "<div style='color: #94a3b8; font-size: 11px; line-height: 1.5;'>"
-            "<b>© 2026 Reymart De Lara.</b> All Rights Reserved.<br>"
-            "<span style='color: #cbd5e1;'>Created & Developed by Reymart De Lara</span><br>"
-            "<span style='color: #64748b; font-size: 10px;'>IBM i and AS/400 are registered trademarks of IBM Corp.</span>"
-            "</div>"
-            "</div>"
-        )
+PING_TARGET_IP = "189.88.18.66"
 
 
 class IBMiDashboard(QMainWindow):
@@ -1205,6 +1428,14 @@ class IBMiDashboard(QMainWindow):
 
         self.thread_pool = cast(QThreadPool, QThreadPool.globalInstance())
         self.thread_pool.setMaxThreadCount(8)
+        self.object_statistics_thread_pool = QThreadPool(self)
+        self.object_statistics_thread_pool.setMaxThreadCount(2)
+        self.object_statistics_runnables = {}
+        self.object_statistics_next_fetch = {}
+        self.temporary_storage_thread_pool = QThreadPool(self)
+        self.temporary_storage_thread_pool.setMaxThreadCount(2)
+        self.temporary_storage_runnables = {}
+        self.temporary_storage_next_fetch = {}
         self.min_refresh_interval_ms = 5000  # Refresh live ASP/CPU data every 5s for near real-time monitoring
         self.refresh_interval_ms = self.min_refresh_interval_ms
         self.server_refresh_timers = {}  # Per-server refresh timers for independent refresh
@@ -1266,6 +1497,24 @@ class IBMiDashboard(QMainWindow):
         self.sidebar_header_layout.addWidget(self.sidebar_toggle_btn, 0, Qt.AlignmentFlag.AlignRight)
         self.sidebar_layout.addWidget(self.sidebar_header)
 
+        self.ping_status_label = QLabel("No ping")
+        self.ping_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.ping_status_label.setMinimumHeight(28)
+        self.ping_status_label.setFixedHeight(28)
+        self.ping_status_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.ping_status_label.setStyleSheet(
+            "QLabel {"
+            "  color: #8b949e;"
+            "  font-weight: bold;"
+            "  font-size: 10px;"
+            "  background-color: rgba(15, 23, 42, 0.78);"
+            "  border: 1px solid rgba(148, 163, 184, 0.35);"
+            "  border-radius: 14px;"
+            "  padding: 0 10px;"
+            "}"
+        )
+        self.ping_status_label.setToolTip(f"Gateway ping to {PING_TARGET_IP}")
+
         self.nav_buttons = {}
         self.nav_button_labels = {}
         nav_items = [
@@ -1290,6 +1539,7 @@ class IBMiDashboard(QMainWindow):
             self.sidebar_layout.addWidget(btn)
 
         self.sidebar_layout.addStretch(1)
+        self.sidebar_layout.addWidget(self.ping_status_label, alignment=Qt.AlignmentFlag.AlignLeft)
 
         self.content_stack = QStackedWidget(self.central_widget)
         self.content_stack.setObjectName("contentStack")
@@ -1456,7 +1706,7 @@ class IBMiDashboard(QMainWindow):
         if not self._settings_have_unsaved_changes():
             return True
 
-        choice = QMessageBox.question(
+        choice = ask_question_dialog(
             self,
             "Unsaved Settings",
             "You have unsaved Settings changes. Save them before leaving?",
@@ -1650,7 +1900,7 @@ class IBMiDashboard(QMainWindow):
         self.toggle_btn.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         self.toggle_btn.setFixedHeight(42)
         self.toggle_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.toggle_btn.clicked.connect(self.validate_login_credentials)
+        self.toggle_btn.clicked.connect(self.validate_login_credentials_async)
         self.toggle_btn.setStyleSheet(
             "QPushButton { background-color: #2563eb; color: white; border: none; border-radius: 8px; padding: 0 18px; }"
             "QPushButton:hover { background-color: #1d4ed8; }"
@@ -1706,10 +1956,10 @@ class IBMiDashboard(QMainWindow):
         lpar_layout.setContentsMargins(10, 8, 10, 8)
 
         self.lpar_table = QTableWidget()
-        self.lpar_table.setColumnCount(6)
+        self.lpar_table.setColumnCount(7)
         self.lpar_table.setHorizontalHeaderLabels([
             "IP / Hostname", "Database Name", "Daily Backup Name",
-            "Journal Backup Name", "Expected Subsystems", "Monitored Ports (Port:Name)"
+            "Journal Backup Name", "Expected Subsystems", "Monitored Ports (Port:Name)", "Web Apps (Job:Port)"
         ])
         self.lpar_table.setAlternatingRowColors(True)
         self.lpar_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -1950,6 +2200,7 @@ class IBMiDashboard(QMainWindow):
                     "SERVER_CONFIGS": dict(self.active_server_configs),
                     "EXPECTED_SUBSYSTEMS": dict(EXPECTED_SUBSYSTEMS),
                     "EXPECTED_PORTS": dict(EXPECTED_PORTS),
+                    "EXPECTED_WEB_APPS": dict(EXPECTED_WEB_APPS),
                     "EMAIL_ALERTS": {},
                 }
             email_alerts = dict(cast(dict, payload.get("EMAIL_ALERTS", {})))
@@ -1965,9 +2216,9 @@ class IBMiDashboard(QMainWindow):
             payload["LOGS_ROOT"] = self.logs_root_input.text().strip()
             save_settings_backup(target_path, payload)
         except (OSError, TypeError, ValueError) as exc:
-            QMessageBox.critical(self, "Backup Failed", f"Could not create the settings backup:\n{exc}")
+            show_critical_dialog(self, "Backup Failed", f"Could not create the settings backup:\n{exc}")
             return
-        QMessageBox.information(self, "Backup Created", f"Settings backup created:\n{target_path}")
+        show_information_dialog(self, "Backup Created", f"Settings backup created:\n{target_path}")
 
     def restore_settings(self):
         source_path, _ = QFileDialog.getOpenFileName(
@@ -2000,17 +2251,20 @@ class IBMiDashboard(QMainWindow):
             self.log_dedupe_combo.setCurrentIndex({0: 0, 30: 1, 60: 2, 300: 3}.get(int(email_alerts.get("log_dedupe_seconds", 60) or 60), 2))
             restored_subsystems = payload["EXPECTED_SUBSYSTEMS"]
             restored_ports = payload["EXPECTED_PORTS"]
+            restored_web_apps = payload.get("EXPECTED_WEB_APPS", {})
             self.active_server_configs.clear()
             self.active_server_configs.update(payload["SERVER_CONFIGS"])
             EXPECTED_SUBSYSTEMS.clear()
             EXPECTED_SUBSYSTEMS.update(restored_subsystems)
             EXPECTED_PORTS.clear()
             EXPECTED_PORTS.update(restored_ports)
+            EXPECTED_WEB_APPS.clear()
+            EXPECTED_WEB_APPS.update(restored_web_apps)
             self._populate_lpar_table()
             self._settings_saved_snapshot = self._capture_settings_snapshot()
             self.save_settings_page()
         except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            QMessageBox.critical(self, "Restore Failed", f"Could not restore the settings backup:\n{exc}")
+            show_critical_dialog(self, "Restore Failed", f"Could not restore the settings backup:\n{exc}")
 
     def _set_backup_status(self, message):
         if hasattr(self, "status_label"):
@@ -2030,6 +2284,18 @@ class IBMiDashboard(QMainWindow):
                     port_parts.append(f"{entry.get('port')}:{entry.get('name')}")
                 else:
                     port_parts.append(str(entry))
+            web_apps = EXPECTED_WEB_APPS.get(server_name, [])
+            web_app_parts = []
+            for entry in web_apps:
+                if isinstance(entry, dict):
+                    app_name = str(entry.get("job_name") or entry.get("name") or entry.get("job") or "").strip().upper()
+                    port_num = entry.get("port")
+                    if app_name and port_num is not None:
+                        web_app_parts.append(f"{app_name}:{port_num}")
+                elif isinstance(entry, str):
+                    item = entry.strip()
+                    if item:
+                        web_app_parts.append(item)
             daily_name = cfg.get("daily_backup_name", "DAILYSWA") if isinstance(cfg, dict) else "DAILYSWA"
             journal_name = cfg.get("journal_backup_name", "DAILYSWA") if isinstance(cfg, dict) else "DAILYSWA"
             self.lpar_table.setItem(row, 0, QTableWidgetItem(host))
@@ -2038,6 +2304,7 @@ class IBMiDashboard(QMainWindow):
             self.lpar_table.setItem(row, 3, QTableWidgetItem(str(journal_name or "DAILYSWA")))
             self.lpar_table.setItem(row, 4, QTableWidgetItem(subsystems_str))
             self.lpar_table.setItem(row, 5, QTableWidgetItem(", ".join(port_parts)))
+            self.lpar_table.setItem(row, 6, QTableWidgetItem(", ".join(web_app_parts)))
 
     def _add_lpar_row(self):
         row = self.lpar_table.rowCount()
@@ -2048,6 +2315,7 @@ class IBMiDashboard(QMainWindow):
         self.lpar_table.setItem(row, 3, QTableWidgetItem("DAILYSWA"))
         self.lpar_table.setItem(row, 4, QTableWidgetItem("QINTER, QBATCH, QSYSWRK"))
         self.lpar_table.setItem(row, 5, QTableWidgetItem("21:FTP, 22:SSH"))
+        self.lpar_table.setItem(row, 6, QTableWidgetItem("DLRWEB:10078"))
         self._update_settings_save_state()
 
     def _remove_lpar_row(self):
@@ -2066,18 +2334,18 @@ class IBMiDashboard(QMainWindow):
         try:
             port = int(self.smtp_port_input.text().strip() or 587)
         except ValueError:
-            QMessageBox.warning(self, "Invalid SMTP Port", "Please enter a valid SMTP port.")
+            show_warning_dialog(self, "Invalid SMTP Port", "Please enter a valid SMTP port.")
             return
 
         if not smtp_server or not to_addresses or "@" not in from_address:
-            QMessageBox.warning(
+            show_warning_dialog(
                 self,
                 "Incomplete SMTP Settings",
                 "Enter an SMTP server, a valid From Address, and at least one recipient.",
             )
             return
         if any("@" not in address for address in to_addresses):
-            QMessageBox.warning(self, "Invalid Recipient", "Please check the recipient email addresses.")
+            show_warning_dialog(self, "Invalid Recipient", "Please check the recipient email addresses.")
             return
 
         self.test_email_btn.setEnabled(False)
@@ -2096,9 +2364,9 @@ class IBMiDashboard(QMainWindow):
     def _handle_test_email_result(self, success, message):
         self.test_email_btn.setEnabled(True)
         if success:
-            QMessageBox.information(self, "Test Email", message)
+            show_information_dialog(self, "Test Email", message)
         else:
-            QMessageBox.critical(self, "Test Email Failed", message)
+            show_critical_dialog(self, "Test Email Failed", message)
 
     def save_settings_page(self):
         if self.is_monitoring:
@@ -2109,6 +2377,7 @@ class IBMiDashboard(QMainWindow):
         new_configs = {}
         new_subsystems = {}
         new_ports = {}
+        new_web_apps = {}
         for row in range(self.lpar_table.rowCount()):
             host_item = self.lpar_table.item(row, 0)
             if not host_item or not host_item.text().strip():
@@ -2119,6 +2388,7 @@ class IBMiDashboard(QMainWindow):
             journal_backup_name = self.lpar_table.item(row, 3).text().strip().upper() if self.lpar_table.item(row, 3) else "DAILYSWA"
             subsystems = self.lpar_table.item(row, 4).text().strip() if self.lpar_table.item(row, 4) else ""
             ports = self.lpar_table.item(row, 5).text().strip() if self.lpar_table.item(row, 5) else ""
+            web_apps = self.lpar_table.item(row, 6).text().strip() if self.lpar_table.item(row, 6) else ""
             new_configs[host.upper()] = {
                 "host": host,
                 "db": db,
@@ -2137,7 +2407,17 @@ class IBMiDashboard(QMainWindow):
                         parsed_ports.append({"port": int(port_num.strip()), "name": port_name.strip().upper()})
                 elif item.isdigit():
                     parsed_ports.append({"port": int(item), "name": f"PORT_{item}"})
+            parsed_web_apps = []
+            for part in web_apps.split(","):
+                item = part.strip()
+                if not item:
+                    continue
+                if ":" in item:
+                    app_name, port_num = item.split(":", 1)
+                    if port_num.strip().isdigit():
+                        parsed_web_apps.append({"job_name": app_name.strip().upper(), "port": int(port_num.strip())})
             new_ports[host.upper()] = parsed_ports
+            new_web_apps[host.upper()] = parsed_web_apps
 
         try:
             smtp_port = int(self.smtp_port_input.text().strip() or 587)
@@ -2202,6 +2482,7 @@ class IBMiDashboard(QMainWindow):
             new_configs,
             new_subsystems,
             new_ports,
+            expected_web_apps=new_web_apps,
             email_alerts=email_alerts,
             login_credentials={"remember": remember_credentials, "username": login_username},
             log_root=logs_root,
@@ -2216,12 +2497,13 @@ class IBMiDashboard(QMainWindow):
         SERVER_CONFIGS.clear(); SERVER_CONFIGS.update(new_configs)
         EXPECTED_SUBSYSTEMS.clear(); EXPECTED_SUBSYSTEMS.update(new_subsystems)
         EXPECTED_PORTS.clear(); EXPECTED_PORTS.update(new_ports)
+        EXPECTED_WEB_APPS.clear(); EXPECTED_WEB_APPS.update(new_web_apps)
         self.rebuild_server_cards()
         self.status_label.setText("Status: Settings saved and applied.")
         self.status_label.setStyleSheet("color: #2ea043; font-weight: bold; font-size: 11px; background-color: transparent;")
         self._settings_saved_snapshot = self._capture_settings_snapshot()
         self._update_settings_save_state()
-        QMessageBox.information(self, "Settings Applied", "Settings were saved and applied successfully.")
+        show_information_dialog(self, "Settings Applied", "Settings were saved and applied successfully.")
 
     def _update_start_controls_state(self):
         enabled = self.credentials_validated and bool(self.active_server_configs)
@@ -2281,6 +2563,55 @@ class IBMiDashboard(QMainWindow):
                 )
 
     def validate_login_credentials(self):
+        username = self.user_input.text().strip()
+        password = self.pass_input.text().strip()
+
+        if not username or not password:
+            return {}
+
+        if not self.active_server_configs:
+            return {}
+
+        result = CredentialCheckThread.validate_server_credentials(
+            self.active_server_configs,
+            username,
+            password,
+            timeout_seconds=CREDENTIAL_CHECK_TIMEOUT_SECONDS,
+        )
+        self._credential_check_results = result
+        self._handle_credential_check_results(result)
+        return result
+
+    def _update_credential_countdown(self):
+        deadline = getattr(self, "_credential_check_deadline", None)
+        if deadline is None:
+            return
+
+        remaining = max(0, int(deadline - time.monotonic()))
+        self.status_label.setText(f"Status: Checking credentials... {remaining}s remaining")
+        self.status_label.setStyleSheet("color: #8b949e; font-size: 11px; background-color: transparent;")
+
+    def _start_credential_countdown(self):
+        self._credential_check_deadline = time.monotonic() + CREDENTIAL_CHECK_TIMEOUT_SECONDS
+        if hasattr(self, "_credential_check_countdown_timer") and self._credential_check_countdown_timer is not None:
+            self._credential_check_countdown_timer.stop()
+            self._credential_check_countdown_timer.deleteLater()
+
+        self._credential_check_countdown_timer = QTimer(self)
+        self._credential_check_countdown_timer.setInterval(1000)
+        self._credential_check_countdown_timer.timeout.connect(self._update_credential_countdown)
+        self._credential_check_countdown_timer.start()
+        self._update_credential_countdown()
+
+    def _stop_credential_countdown(self):
+        self._credential_check_deadline = None
+        timer = getattr(self, "_credential_check_countdown_timer", None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+            self._credential_check_countdown_timer = None
+
+    def validate_login_credentials_async(self):
         self.toggle_btn.setEnabled(False)
         self.toggle_btn.setText("Checking...")
         self.status_label.setText("Status: Checking credentials...")
@@ -2305,18 +2636,23 @@ class IBMiDashboard(QMainWindow):
 
         self.credentials_validated = False
         self._credential_check_results = {}
+        self._start_credential_countdown()
         self.credential_check_thread = CredentialCheckThread(
             self.active_server_configs,
             username,
             password,
+            timeout_seconds=CREDENTIAL_CHECK_TIMEOUT_SECONDS,
         )
-        event_loop = QEventLoop()
         self.credential_check_thread.results_ready.connect(self._handle_credential_check_results)
-        self.credential_check_thread.finished.connect(event_loop.quit)
+        self.credential_check_thread.finished.connect(self._on_credential_check_finished)
         self.credential_check_thread.start()
-        event_loop.exec()
-        self.credential_check_thread.deleteLater()
         return self._credential_check_results
+
+    def _on_credential_check_finished(self):
+        self._stop_credential_countdown()
+        if hasattr(self, "credential_check_thread"):
+            self.credential_check_thread.deleteLater()
+            self.credential_check_thread = None
 
     def _handle_credential_check_results(self, results):
         self._credential_check_results = results
@@ -2546,7 +2882,7 @@ class IBMiDashboard(QMainWindow):
         filter_bar_layout.addWidget(self.sort_combo)
 
         self.group_combo = QComboBox()
-        self.group_combo.addItems(["Grouping: Prefix (JDAD/JDAP)", "Grouping: Status", "Grouping: None (Grid)"])
+        self.group_combo.addItems(["Grouping: Prefix", "Grouping: Status", "Grouping: None (Grid)"])
         self.group_combo.currentIndexChanged.connect(self.filter_and_sort_cards)
         filter_bar_layout.addWidget(self.group_combo)
 
@@ -2570,6 +2906,66 @@ class IBMiDashboard(QMainWindow):
 
         scroll_area.setWidget(scroll_content)
         main_layout.addWidget(scroll_area, stretch=1)
+        self._update_ping_indicator()
+
+    def _latency_color_for_ms(self, latency_ms):
+        if latency_ms is None:
+            return "#8b949e"
+        if latency_ms <= 100:
+            return "#2ea043"
+        if latency_ms <= 250:
+            return "#e3b341"
+        return "#f85149"
+
+    def _measure_gateway_ping_ms(self, target_ip=PING_TARGET_IP):
+        if sys.platform.startswith("win"):
+            command = ["ping", "-n", "1", "-w", "1200", target_ip]
+        else:
+            command = ["ping", "-c", "1", "-W", "1.2", target_ip]
+
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=3,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform.startswith("win") else 0,
+            )
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return None
+
+        output = (completed.stdout or "") + "\n" + (completed.stderr or "")
+        match = re.search(r"time[<>= ]+(\d+(?:\.\d+)?)\s*ms", output, re.IGNORECASE)
+        if match:
+            return int(round(float(match.group(1))))
+        return None
+
+    def _update_ping_indicator(self):
+        if not hasattr(self, "ping_status_label"):
+            return
+
+        latency_ms = self._measure_gateway_ping_ms(PING_TARGET_IP)
+        if latency_ms is None:
+            text = "No ping"
+            color = "#8b949e"
+        else:
+            text = f"{latency_ms} ms"
+            color = self._latency_color_for_ms(latency_ms)
+
+        self.ping_status_label.setText(text)
+        self.ping_status_label.setStyleSheet(
+            "QLabel {"
+            f"  color: {color};"
+            "  font-weight: bold;"
+            "  font-size: 10px;"
+            "  background-color: rgba(15, 23, 42, 0.78);"
+            "  border: 1px solid rgba(148, 163, 184, 0.35);"
+            "  border-radius: 14px;"
+            "  padding: 0 10px;"
+            "}"
+        )
+        self.ping_status_label.setToolTip(f"Gateway ping: {text} to {PING_TARGET_IP}")
 
     def _server_refresh_interval_ms(self, server_name, result=None):
         base = self.min_refresh_interval_ms
@@ -2594,8 +2990,17 @@ class IBMiDashboard(QMainWindow):
             candidate_intervals.append(self._server_refresh_interval_ms(server_name, result))
         return max(8000, min(candidate_intervals)) if candidate_intervals else self.min_refresh_interval_ms
 
+    def _gateway_ping_reachable(self):
+        latency_ms = self._measure_gateway_ping_ms(PING_TARGET_IP)
+        return latency_ms is not None
+
     def _register_server_result(self, server_name, result):
         status = str(result.get("status", "OFFLINE")).upper()
+        if status == "OFFLINE" and self._gateway_ping_reachable():
+            status = "STALE"
+            result["status"] = status
+            result["error"] = str(result.get("error") or "No fresh server data")
+
         if result.get("sync_duration_ms") is not None:
             sync_duration_ms = int(result.get("sync_duration_ms"))
         elif self.last_refresh_started_at is not None:
@@ -2607,7 +3012,7 @@ class IBMiDashboard(QMainWindow):
             self.server_retry_counts.pop(server_name, None)
             self.server_last_success[server_name] = time.monotonic()
             self.server_error_reasons.pop(server_name, None)
-        elif status in ("OFFLINE", "AUTH_ERROR"):
+        elif status in ("OFFLINE", "AUTH_ERROR", "STALE"):
             self.server_retry_counts[server_name] = self.server_retry_counts.get(server_name, 0) + 1
             self.server_last_success.setdefault(server_name, time.monotonic())
             self.server_error_reasons[server_name] = str(result.get("error") or status)
@@ -2632,6 +3037,8 @@ class IBMiDashboard(QMainWindow):
             srv for srv, data in self.latest_results_cache.items()
             if str(data.get("status", "OFFLINE")).upper() == "AUTH_ERROR"
         ]
+
+        self._update_ping_indicator()
 
         if self.auto_refresh_paused:
             self.status_label.setText("Status: Auto-refresh paused. Resume when you are ready.")
@@ -3115,6 +3522,105 @@ class IBMiDashboard(QMainWindow):
         )
         self.thread_pool.start(runnable)
 
+    def _schedule_object_statistics_fetch(self, server_name, cfg, username, password):
+        host = cfg.get("host", "") if isinstance(cfg, dict) else str(cfg)
+        db = cfg.get("db", "*LOCAL") if isinstance(cfg, dict) else "*LOCAL"
+        cache_key = (
+            server_name,
+            str(host).strip().lower(),
+            str(db).strip().upper(),
+            str(username).strip().upper(),
+        )
+        if cache_key in self.object_statistics_runnables:
+            return
+
+        card = self.card_widgets.get(server_name)
+        now = time.monotonic()
+        if now < self.object_statistics_next_fetch.get(cache_key, 0.0):
+            cached = worker._get_cached_object_statistics(host, db, username)
+            if cached is not None:
+                if card is not None:
+                    card.set_object_statistics(*cached)
+                return
+
+        runnable = ObjectStatisticsRunnable(
+            server_name,
+            cfg,
+            username,
+            password,
+            signal_parent=self,
+        )
+        self.object_statistics_runnables[cache_key] = runnable
+        runnable.signals.statistics_ready.connect(
+            lambda data, key=cache_key, task=runnable:
+                self._on_object_statistics_fetched(data, key, task)
+        )
+        self.object_statistics_thread_pool.start(runnable)
+
+    def _on_object_statistics_fetched(self, data, cache_key, runnable):
+        if self.object_statistics_runnables.get(cache_key) is runnable:
+            self.object_statistics_runnables.pop(cache_key, None)
+        self.object_statistics_next_fetch[cache_key] = (
+            time.monotonic() + worker._OBJECT_STATISTICS_CACHE_TTL_SECONDS
+        )
+        config_key = data.get("config_key") or cache_key[0]
+        card = self.card_widgets.get(config_key)
+        if card is not None:
+            card.set_object_statistics(
+                data.get("object_statistics", []),
+                str(data.get("object_statistics_error") or ""),
+                bool(data.get("object_statistics_loaded", False)),
+                str(data.get("object_statistics_updated_at") or ""),
+            )
+
+    def _schedule_temporary_storage_jobs_fetch(self, server_name, cfg, username, password):
+        host = cfg.get("host", "") if isinstance(cfg, dict) else str(cfg)
+        db = cfg.get("db", "*LOCAL") if isinstance(cfg, dict) else "*LOCAL"
+        cache_key = (
+            server_name,
+            str(host).strip().lower(),
+            str(db).strip().upper(),
+            str(username).strip().upper(),
+        )
+        if cache_key in self.temporary_storage_runnables:
+            return
+
+        card = self.card_widgets.get(server_name)
+        if time.monotonic() < self.temporary_storage_next_fetch.get(cache_key, 0.0):
+            cached = worker._get_cached_temporary_storage_jobs(host, db, username)
+            if cached is not None:
+                if card is not None:
+                    card.set_top_temporary_storage_jobs(*cached)
+                return
+
+        runnable = TemporaryStorageJobsRunnable(
+            server_name,
+            cfg,
+            username,
+            password,
+            signal_parent=self,
+        )
+        self.temporary_storage_runnables[cache_key] = runnable
+        runnable.signals.jobs_ready.connect(
+            lambda data, key=cache_key, task=runnable:
+                self._on_temporary_storage_jobs_fetched(data, key, task)
+        )
+        self.temporary_storage_thread_pool.start(runnable)
+
+    def _on_temporary_storage_jobs_fetched(self, data, cache_key, runnable):
+        if self.temporary_storage_runnables.get(cache_key) is runnable:
+            self.temporary_storage_runnables.pop(cache_key, None)
+        self.temporary_storage_next_fetch[cache_key] = (
+            time.monotonic() + worker._TEMPORARY_STORAGE_JOBS_CACHE_TTL_SECONDS
+        )
+        config_key = data.get("config_key") or cache_key[0]
+        card = self.card_widgets.get(config_key)
+        if card is not None:
+            card.set_top_temporary_storage_jobs(
+                data.get("top_temporary_storage_jobs", []),
+                str(data.get("top_temporary_storage_jobs_error") or ""),
+            )
+
     def _on_single_server_fetched_independent(self, lpar_data, generation, runnable, server_name):
         """Handle individual server fetch completion and schedule next refresh for that server."""
         self.active_runnables.discard(runnable)
@@ -3138,6 +3644,20 @@ class IBMiDashboard(QMainWindow):
                 card.last_success_ts = completed_at or time.strftime("%H:%M:%S")
             card.update_data(lpar_data)
             card._sync_health_summary()
+
+        if str(lpar_data.get("status", "OFFLINE")).upper() in ("ONLINE", "DEGRADED"):
+            self._schedule_object_statistics_fetch(
+                server_name,
+                runnable.cfg,
+                runnable.username,
+                runnable.password,
+            )
+            self._schedule_temporary_storage_jobs_fetch(
+                server_name,
+                runnable.cfg,
+                runnable.username,
+                runnable.password,
+            )
 
         self._refresh_global_status_summary()
 

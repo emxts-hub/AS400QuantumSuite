@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 
 APP_NAME = "AS400 Quantum Suite"
-APP_VERSION = "5.0.0"
+APP_VERSION = "5.5.0"
 USER_PROFILE = os.environ.get("USERPROFILE") or os.path.expanduser("~")
 DEFAULT_ONEDRIVE_SHAREPOINT_PATH = os.path.join(
     USER_PROFILE,
@@ -236,6 +236,7 @@ def get_resource_path(relative_path):
 DEFAULT_SERVER_CONFIGS = {}
 DEFAULT_EXPECTED_SUBSYSTEMS = {}
 DEFAULT_EXPECTED_PORTS = {}
+DEFAULT_EXPECTED_WEB_APPS = {}
 DEFAULT_EMAIL_ALERTS = {
     "enabled": False,
     "smtp_server": "",
@@ -278,6 +279,11 @@ def load_expected_subsystems():
 def load_expected_ports():
     """Loads expected ports from config.json or returns default."""
     return _load_config_mapping("EXPECTED_PORTS", DEFAULT_EXPECTED_PORTS)
+
+
+def load_expected_web_apps():
+    """Loads configured web app job-name/port pairs from config.json or returns default."""
+    return _load_config_mapping("EXPECTED_WEB_APPS", DEFAULT_EXPECTED_WEB_APPS)
 
 
 def _atomic_write_json(target_path: str, payload) -> bool:
@@ -363,6 +369,7 @@ def safe_json_append_and_save(file_path: str, new_entry: dict, max_retries: int 
 SERVER_CONFIGS = load_server_configs()
 EXPECTED_SUBSYSTEMS = load_expected_subsystems()
 EXPECTED_PORTS = load_expected_ports()
+EXPECTED_WEB_APPS = load_expected_web_apps()
 
 from ui.setcreds import (
     get_email_password,

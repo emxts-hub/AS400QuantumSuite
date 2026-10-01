@@ -2,10 +2,11 @@ from collections import deque
 from PyQt6.QtCore import Qt, QRectF, QTimer, QDateTime, QPointF
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QCursor, QPolygonF, QBrush, QMouseEvent
 from PyQt6.QtWidgets import (
-    QWidget, QLabel, QPushButton, QDialog, QVBoxLayout, 
-    QHBoxLayout, QGridLayout, QApplication, QProgressBar
+    QWidget, QLabel, QPushButton, QVBoxLayout,
+    QHBoxLayout, QGridLayout, QApplication
 )
 from config import EXPECTED_SUBSYSTEMS, SERVICE_COMMANDS, SUBSYSTEM_COMMANDS
+from dialogs import ItemDetailDialog, ThemeLoadingDialog
 
 
 class SparklineWidget(QWidget):
@@ -89,57 +90,6 @@ class SparklineWidget(QWidget):
         painter.setBrush(QBrush(fill_pri))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawPolygon(QPolygonF(poly_pri))
-
-
-class ThemeLoadingDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setFixedSize(240, 90)
-
-        app = QApplication.instance()
-        is_dark = bool(app.property("is_dark_theme")) if app is not None else True
-        bg_clr = "#161b22" if is_dark else "#ffffff"
-        text_clr = "#ffffff" if is_dark else "#1f2328"
-        border_clr = "#30363d" if is_dark else "#d0d7de"
-
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {bg_clr};
-                border: 1px solid {border_clr};
-                border-radius: 8px;
-            }}
-            QLabel {{
-                color: {text_clr};
-                font-family: "Segoe UI", sans-serif;
-                font-size: 12px;
-                font-weight: bold;
-            }}
-            QProgressBar {{
-                border: none;
-                background-color: {"#21262d" if is_dark else "#e1e4e8"};
-                height: 4px;
-                border-radius: 2px;
-            }}
-            QProgressBar::chunk {{
-                background-color: #238636;
-                border-radius: 2px;
-            }}
-        """)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.label = QLabel("Switching Theme...", self)
-        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.label)
-
-        self.pbar = QProgressBar(self)
-        self.pbar.setRange(0, 0)
-        layout.addWidget(self.pbar)
 
 
 class RefreshStatusWidget(QWidget):
@@ -241,114 +191,6 @@ class CircularGauge(QWidget):
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, f"{self.value:.2f}%")
 
 
-class ItemDetailDialog(QDialog):
-    def __init__(self, title_text, status_bool, command_text, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Command Detail")
-        self.setFixedSize(320, 200)
-        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
-        
-        app = QApplication.instance()
-        is_dark_theme = bool(app.property("is_dark_theme")) if app is not None else True
-        dialog_bg = "#161b22" if is_dark_theme else "#ffffff"
-        text_clr = "#ffffff" if is_dark_theme else "#1f2328"
-        muted_clr = "#8b949e" if is_dark_theme else "#57606a"
-        surface = "#21262d" if is_dark_theme else "#eaeef2"
-        border = "#30363d" if is_dark_theme else "#d0d7de"
-
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {dialog_bg};
-                border: 1px solid {border};
-                border-radius: 8px;
-            }}
-        """)
-
-        self.reset_timer = QTimer(self)
-        self.reset_timer.setSingleShot(True)
-        self.reset_timer.timeout.connect(self.reset_button_text)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(8)
-
-        title_label = QLabel(title_text)
-        title_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        title_label.setStyleSheet(f"color: {text_clr}; background: transparent; border: none;")
-        layout.addWidget(title_label)
-
-        status_str = "UP" if status_bool else "DOWN"
-        status_color = "#3fb950" if status_bool else "#f85149"
-        status_label = QLabel(f"Status: {status_str}")
-        status_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        status_label.setStyleSheet(f"color: {status_color}; background: transparent; border: none;")
-        layout.addWidget(status_label)
-
-        cmd_label = QLabel(f"Cmd: {command_text}")
-        cmd_label.setFont(QFont("Consolas", 9))
-        cmd_label.setWordWrap(True)
-        cmd_label.setStyleSheet(f"color: {muted_clr}; background: transparent; border: none;")
-        layout.addWidget(cmd_label)
-
-        layout.addStretch()
-
-        self.copy_btn = QPushButton("Copy Start Command")
-        self.copy_btn.setFixedHeight(30)
-        self.copy_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.copy_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {surface};
-                color: {text_clr};
-                border: 1px solid {border};
-                border-radius: 6px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{ 
-                background-color: {border}; 
-                color: {'#ffffff' if is_dark_theme else '#1f2328'}; 
-            }}
-        """)
-        self.copy_btn.clicked.connect(lambda: self.copy_command(command_text))
-        layout.addWidget(self.copy_btn)
-
-    def show_smart(self):
-        cursor_pos = QCursor.pos()
-        screen = QApplication.screenAt(cursor_pos) or QApplication.primaryScreen()
-        if screen is None:
-            self.exec()
-            return
-        screen_geo = screen.availableGeometry()
-
-        dialog_w = self.width()
-        dialog_h = self.height()
-
-        x = cursor_pos.x() - (dialog_w // 2)
-        y = cursor_pos.y() - (dialog_h // 2)
-
-        margin = 10
-        x = max(screen_geo.left() + margin, min(x, screen_geo.right() - dialog_w - margin))
-        y = max(screen_geo.top() + margin, min(y, screen_geo.bottom() - dialog_h - margin))
-
-        self.move(x, y)
-        self.exec()
-
-    def copy_command(self, cmd):
-        clipboard = QApplication.clipboard()
-        if clipboard is not None:
-            clipboard.setText(cmd)
-        self.copy_btn.setText("✓ Copied!")
-        self.reset_timer.start(1500)
-
-    def reset_button_text(self):
-        if hasattr(self, "copy_btn") and self.copy_btn:
-            self.copy_btn.setText("Copy Start Command")
-
-    def reject(self):
-        if hasattr(self, "reset_timer"):
-            self.reset_timer.stop()
-        super().reject()
-
-
 class SubsystemBadge(QLabel):
     def __init__(self, name, is_up, parent=None):
         status_str = "UP" if is_up else "DOWN"
@@ -446,7 +288,7 @@ class SubsystemGridWidget(QWidget):
         self.actual_running_count = actual_running_count
 
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(4, 4, 4, 4)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(4)
         self.main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
@@ -455,25 +297,30 @@ class SubsystemGridWidget(QWidget):
         h_layout.setContentsMargins(0, 0, 0, 0)
         h_layout.setSpacing(8)
 
+        self.title_label = QLabel("Subsystems")
+        self.title_label.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        app = QApplication.instance()
+        is_dark = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
+        title_color = "#c9d1d9" if is_dark else "#57606a"
+        self.title_label.setStyleSheet(f"color: {title_color}; background: transparent;")
+        h_layout.addWidget(self.title_label)
+        h_layout.addStretch()
+
         header_color = "#3fb950" if self.all_healthy else "#f85149"
-        self.header_label = QLabel(f"● {self.expected_running_count} / {expected_total_count} Active")
-        self.header_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        self.header_label = QLabel(f"• {self.expected_running_count} / {expected_total_count} Active")
+        self.header_label.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
         self.header_label.setStyleSheet(f"color: {header_color}; background: transparent;")
         h_layout.addWidget(self.header_label)
 
-        h_layout.addStretch()
-
-        self.toggle_btn = QPushButton("Expand ▾")
-        self.toggle_btn.setFixedSize(70, 22)
+        self.toggle_btn = QPushButton("Expand ▼")
+        self.toggle_btn.setFixedSize(70, 21)
         self.toggle_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.toggle_btn.setStyleSheet("""
             QPushButton {
                 background-color: #21262d;
                 color: #c9d1d9;
                 border: 1px solid #30363d;
-                border-radius: 4px;
-                font-size: 10px;
-                padding: 0px;
+                padding: 2px 8px;
             }
             QPushButton:hover {
                 color: #ffffff;

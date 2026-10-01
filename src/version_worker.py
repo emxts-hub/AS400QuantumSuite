@@ -15,7 +15,8 @@ def _valid_update_url(value):
         return False
     host = parsed.netloc.lower()
     if host == "github.com":
-        return parsed.path.startswith("/emxts-hub/AS400QuantumSuite/")
+        path = parsed.path.strip("/")
+        return path.startswith("emxts-hub/") and path.endswith("/releases/latest")
     return host == "emxts-hub.github.io"
 
 
