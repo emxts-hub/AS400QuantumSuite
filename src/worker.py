@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import html as html_lib
 import re
 import struct
 import threading
@@ -41,6 +42,8 @@ _LAST_ASP_SOUND_STATE = {"armed": False, "sent_at": 0.0}
 _LAST_ASP_EMAIL_STATE = {}
 _LAST_SERVER_STATUS = {}
 _SERVER_ALERTING_SERVERS = set()
+_PENDING_SERVER_STATUS_ALERTS = {}
+SERVER_STATUS_ALERT_DELAY_SECONDS = 3
 _ALERT_SOUND_STOP_EVENT = threading.Event()
 _ALERT_SOUND_PROCESSES = set()
 _ALERT_SOUND_PROCESS_LOCK = threading.Lock()
@@ -53,12 +56,10 @@ _SERVER_ALERT_SOUND_LOCK = threading.Lock()
 _SERVER_ALERT_SOUND_THREAD = None
 _OBJECT_STATISTICS_CACHE_TTL_SECONDS = 3 * 60 * 60
 _OBJECT_STATISTICS_QUERY_TIMEOUT_SECONDS = 120
-_TEMPORARY_STORAGE_JOBS_CACHE_TTL_SECONDS = 3 * 60 * 60
 _TEMPORARY_STORAGE_JOBS_QUERY_TIMEOUT_SECONDS = 120
 _OBJECT_STATISTICS_CACHE_LOCK = threading.Lock()
 _OBJECT_STATISTICS_CACHE = {}
 _OBJECT_STATISTICS_KEY_LOCKS = {}
-_TEMPORARY_STORAGE_JOBS_CACHE = {}
 
 
 class DailyBackupFetchThread(QThread):
@@ -123,6 +124,82 @@ class DailyBackupFetchThread(QThread):
             
             columns = [column[0].lower() for column in cursor.description]
             records = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            self.data_ready.emit(self.server_name, records)
+        except Exception as exc:
+            self.error.emit(self.server_name, str(exc))
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+
+class MonthlyBackupFetchThread(QThread):
+    host_name_ready = pyqtSignal(str, str)
+    data_ready = pyqtSignal(str, list)
+    error = pyqtSignal(str, str)
+
+    HOST_NAME_QUERY = DailyBackupFetchThread.HOST_NAME_QUERY
+    QUERY = """
+        WITH MONTH_START AS (
+            SELECT MIN(MESSAGE_TIMESTAMP) AS START_TIME
+            FROM QUSRBRM.BRMS_LOG_INFO
+            WHERE MESSAGE_TEXT LIKE ?
+              AND MESSAGE_ID = 'BRM1380'
+              AND MESSAGE_TIMESTAMP >= ?
+              AND MESSAGE_TIMESTAMP < ?
+        )
+        SELECT
+            ? AS JOB_NAME,
+            MONTH_START.START_TIME,
+            MIN(BRM_END.MESSAGE_TIMESTAMP) AS END_TIME
+        FROM MONTH_START
+        LEFT JOIN QUSRBRM.BRMS_LOG_INFO AS BRM_END
+          ON BRM_END.MESSAGE_TEXT LIKE ?
+         AND BRM_END.MESSAGE_ID = 'BRM1049'
+         AND BRM_END.MESSAGE_TIMESTAMP >= MONTH_START.START_TIME
+        GROUP BY MONTH_START.START_TIME
+    """
+
+    def __init__(self, server_name, host, db, username, password, control_group_name, month_start, next_month):
+        super().__init__()
+        self.server_name = server_name
+        self.host = host
+        self.db = db
+        self.username = username
+        self.password = password
+        self.control_group_name = control_group_name
+        self.month_start = month_start
+        self.next_month = next_month
+
+    def run(self):
+        conn = None
+        try:
+            conn = _new_connection(self.host, self.db, self.username, self.password)
+            cursor = conn.cursor()
+            cursor.execute(self.HOST_NAME_QUERY)
+            host_row = cursor.fetchone()
+            if host_row and host_row[0] is not None:
+                host_name = str(host_row[0]).strip()
+                if host_name:
+                    self.host_name_ready.emit(self.server_name, host_name)
+
+            cursor.execute(
+                self.QUERY,
+                (
+                    f"%{self.control_group_name}%",
+                    self.month_start,
+                    self.next_month,
+                    self.control_group_name,
+                    f"%{self.control_group_name}%",
+                ),
+            )
+            columns = [column[0].lower() for column in cursor.description]
+            row = cursor.fetchone()
+            records = []
+            if row and row[1] is not None:
+                records.append(dict(zip(columns, row)))
             self.data_ready.emit(self.server_name, records)
         except Exception as exc:
             self.error.emit(self.server_name, str(exc))
@@ -241,7 +318,7 @@ def _get_cached_object_statistics(host, db, username):
     cache_key = _object_statistics_cache_key(host, db, username)
     with _OBJECT_STATISTICS_CACHE_LOCK:
         cached = _OBJECT_STATISTICS_CACHE.get(cache_key)
-    if cached and time.monotonic() - cached[0] < _TEMPORARY_STORAGE_JOBS_CACHE_TTL_SECONDS:
+    if cached and time.monotonic() - cached[0] < _OBJECT_STATISTICS_CACHE_TTL_SECONDS:
         return cached[1], cached[2], cached[3], cached[4]
     return None
 
@@ -278,7 +355,7 @@ def _fetch_object_statistics_cached(cursor, host, db, username):
                 ORDER BY
                     CASE WHEN O.OBJSIZE IS NULL THEN 1 ELSE 0 END ASC,
                     O.OBJSIZE DESC
-                FETCH FIRST 50 ROWS ONLY
+                FETCH FIRST 5 ROWS ONLY
                 WITH UR
                 """
             )
@@ -346,15 +423,6 @@ def _fetch_pool_threads(cursor):
     ]
 
 
-def _get_cached_temporary_storage_jobs(host, db, username):
-    cache_key = _object_statistics_cache_key(host, db, username)
-    with _OBJECT_STATISTICS_CACHE_LOCK:
-        cached = _TEMPORARY_STORAGE_JOBS_CACHE.get(cache_key)
-    if cached and time.monotonic() - cached[0] < _OBJECT_STATISTICS_CACHE_TTL_SECONDS:
-        return cached[1], cached[2]
-    return None
-
-
 def _fetch_top_temporary_storage_jobs(cursor):
     cursor.execute(
         """
@@ -371,7 +439,7 @@ def _fetch_top_temporary_storage_jobs(cursor):
             WHERE ASP_NUMBER = 1
         ) A
         ORDER BY J.TEMPORARY_STORAGE DESC
-        FETCH FIRST 50 ROWS ONLY
+        FETCH FIRST 20 ROWS ONLY
         WITH UR
         """
     )
@@ -720,7 +788,46 @@ def stop_all_server_status_alerts():
     with _ALERT_STATE_LOCK:
         _LAST_SERVER_STATUS.clear()
         _SERVER_ALERTING_SERVERS.clear()
+        pending_alerts = list(_PENDING_SERVER_STATUS_ALERTS.values())
+        _PENDING_SERVER_STATUS_ALERTS.clear()
+    for timer in pending_alerts:
+        timer.cancel()
     stop_server_down_alert_sound()
+
+
+def _clear_server_down_alert_state(server_name):
+    with _ALERT_STATE_LOCK:
+        _LAST_SERVER_STATUS.pop(server_name, None)
+        _SERVER_ALERTING_SERVERS.discard(server_name)
+        pending_alert = _PENDING_SERVER_STATUS_ALERTS.pop(server_name, None)
+        should_stop_sound = not _SERVER_ALERTING_SERVERS
+    if pending_alert is not None:
+        pending_alert.cancel()
+    if should_stop_sound:
+        stop_server_down_alert_sound()
+
+
+def _send_delayed_server_status_alert(server_name, error, timer):
+    with _ALERT_STATE_LOCK:
+        if _PENDING_SERVER_STATUS_ALERTS.get(server_name) is not timer:
+            return
+        if _LAST_SERVER_STATUS.get(server_name) != "OFFLINE":
+            _PENDING_SERVER_STATUS_ALERTS.pop(server_name, None)
+            return
+
+    if not has_vpn_ip():
+        _clear_server_down_alert_state(server_name)
+        return
+
+    with _ALERT_STATE_LOCK:
+        if (
+            _PENDING_SERVER_STATUS_ALERTS.get(server_name) is not timer
+            or _LAST_SERVER_STATUS.get(server_name) != "OFFLINE"
+        ):
+            return
+        _PENDING_SERVER_STATUS_ALERTS.pop(server_name, None)
+
+    send_server_status_alert(server_name, "OFFLINE", error)
 
 
 def play_asp_alert_sound():
@@ -894,8 +1001,8 @@ def stop_asp_alert_sound():
         _ALERT_SOUND_THREAD = None
 
 
-def send_asp_alert(server_name, asp_value, threshold_percent):
-    """Sends an SMTP notification when ASP usage crosses the configured threshold."""
+def send_asp_alert(server_name, asp_value, threshold_percent, severity="WARNING", server_ip=""):
+    """Sends an SMTP notification when ASP usage crosses the warning/critical escalation thresholds."""
     alert_cfg = load_email_alerts()
     if not alert_cfg.get("enabled"):
         return False
@@ -910,16 +1017,65 @@ def send_asp_alert(server_name, asp_value, threshold_percent):
     from_address = str(alert_cfg.get("from_address", "")).strip() or username or "alerts@localhost"
     port = int(alert_cfg.get("port", 587) or 587)
     use_tls = bool(alert_cfg.get("use_tls", True))
+    severity_label = str(severity or "WARNING").upper()
 
     try:
         msg = EmailMessage()
-        msg["Subject"] = f"ASP Threshold Alert - {server_name}"
+        subject_server = str(server_name).strip()
+        if server_ip and server_ip.casefold() != subject_server.casefold():
+            subject_server = f"{subject_server} {server_ip}"
+        msg["Subject"] = f"ASP {severity_label} Alert - {subject_server}"
         msg["From"] = from_address
         msg["To"] = ", ".join(recipients)
-        msg.set_content(
-            f"ASP usage on {server_name} reached {asp_value:.2f}% and exceeded the configured threshold of {threshold_percent:.2f}%.\n\n"
-            f"This notification was generated automatically by the IBM i dashboard."
-        )
+        safe_server_name = html_lib.escape(str(server_name))
+        threshold_text = f"{float(threshold_percent):g}%"
+        current_usage_text = f"{asp_value:.2f}%"
+
+        if severity_label == "CRITICAL":
+            text_body = (
+                "Hello Team,\n\n"
+                f"A CRITICAL alert has been triggered for {server_name} as the ASP usage has reached the configured threshold.\n\n"
+                f"Server: {server_name}\n"
+                f"Current ASP Usage: {current_usage_text}\n"
+                f"ASP Threshold: {threshold_text}\n"
+                "Status: CRITICAL\n\n"
+                "The ASP usage has reached or exceeded the configured threshold. Please take the necessary action to prevent further increase and potential impact to the system.\n\n"
+                "This notification was generated automatically by the IBM i Monitoring Dashboard."
+            )
+            html_body = (
+                "<p>Hello Team,</p>"
+                f"<p>A <strong>CRITICAL</strong> alert has been triggered for <strong>{safe_server_name}</strong> as the ASP usage has reached the configured threshold.</p>"
+                f"<p><strong>Server:</strong> {safe_server_name}<br>"
+                f"<strong>Current ASP Usage:</strong> {current_usage_text}<br>"
+                f"<strong>ASP Threshold:</strong> {threshold_text}<br>"
+                "<strong>Status:</strong> CRITICAL</p>"
+                "<p>The ASP usage has reached or exceeded the configured threshold. Please take the necessary action to prevent further increase and potential impact to the system.</p>"
+                "<p>This notification was generated automatically by the <strong>IBM i Monitoring Dashboard</strong>.</p>"
+            )
+        else:
+            text_body = (
+                "Hello Team,\n\n"
+                f"A WARNING alert has been triggered for {server_name} due to high ASP usage.\n\n"
+                f"Server: {server_name}\n"
+                f"Current ASP Usage: {current_usage_text}\n"
+                f"ASP Threshold: {threshold_text}\n"
+                "Status: WARNING\n\n"
+                "Please monitor the ASP usage and take the necessary action if it continues to increase.\n\n"
+                "This notification was generated automatically by the IBM i Monitoring Dashboard."
+            )
+            html_body = (
+                "<p>Hello Team,</p>"
+                f"<p>A <strong>WARNING</strong> alert has been triggered for <strong>{safe_server_name}</strong> due to high ASP usage.</p>"
+                f"<p><strong>Server:</strong> {safe_server_name}<br>"
+                f"<strong>Current ASP Usage:</strong> {current_usage_text}<br>"
+                f"<strong>ASP Threshold:</strong> {threshold_text}<br>"
+                "<strong>Status:</strong> WARNING</p>"
+                "<p>Please monitor the ASP usage and take the necessary action if it continues to increase.</p>"
+                "<p>This notification was generated automatically by the <strong>IBM i Monitoring Dashboard</strong>.</p>"
+            )
+
+        msg.set_content(text_body)
+        msg.add_alternative(html_body, subtype="html")
 
         with smtplib.SMTP(smtp_server, port, timeout=15) as smtp:
             if use_tls:
@@ -989,15 +1145,10 @@ def maybe_send_server_status_alert(result):
     is_up = status in {"ONLINE", "DEGRADED"}
 
     if is_down and not has_vpn_ip():
-        should_stop_sound = False
-        with _ALERT_STATE_LOCK:
-            _LAST_SERVER_STATUS.pop(server_name, None)
-            _SERVER_ALERTING_SERVERS.discard(server_name)
-            should_stop_sound = not _SERVER_ALERTING_SERVERS
-        if should_stop_sound:
-            stop_server_down_alert_sound()
+        _clear_server_down_alert_state(server_name)
         return False
 
+    cancelled_alert = None
     with _ALERT_STATE_LOCK:
         previous_status = _LAST_SERVER_STATUS.get(server_name)
         _LAST_SERVER_STATUS[server_name] = status
@@ -1005,30 +1156,41 @@ def maybe_send_server_status_alert(result):
             _SERVER_ALERTING_SERVERS.add(server_name)
         elif is_up:
             _SERVER_ALERTING_SERVERS.discard(server_name)
+            cancelled_alert = _PENDING_SERVER_STATUS_ALERTS.pop(server_name, None)
         should_stop_sound = not _SERVER_ALERTING_SERVERS
+    if cancelled_alert is not None:
+        cancelled_alert.cancel()
 
     if is_down and previous_status != "OFFLINE":
         # Recheck immediately before alerting so a VPN disconnect cannot turn
         # a server connection failure into a false server-down notification.
         if not has_vpn_ip():
-            with _ALERT_STATE_LOCK:
-                _LAST_SERVER_STATUS.pop(server_name, None)
-                _SERVER_ALERTING_SERVERS.discard(server_name)
-                should_stop_sound = not _SERVER_ALERTING_SERVERS
-            if should_stop_sound:
-                stop_server_down_alert_sound()
+            _clear_server_down_alert_state(server_name)
             return False
 
         play_server_down_alert_sound()
         if not has_vpn_ip():
-            with _ALERT_STATE_LOCK:
-                _LAST_SERVER_STATUS.pop(server_name, None)
-                _SERVER_ALERTING_SERVERS.discard(server_name)
-                should_stop_sound = not _SERVER_ALERTING_SERVERS
-            if should_stop_sound:
-                stop_server_down_alert_sound()
+            _clear_server_down_alert_state(server_name)
             return False
-        return send_server_status_alert(server_name, status, str(result.get("error", "")))
+
+        timer_ref = {}
+        timer = threading.Timer(
+            SERVER_STATUS_ALERT_DELAY_SECONDS,
+            lambda: _send_delayed_server_status_alert(
+                server_name, str(result.get("error", "")), timer_ref["timer"]
+            ),
+        )
+        timer_ref["timer"] = timer
+        timer.daemon = True
+        with _ALERT_STATE_LOCK:
+            if _LAST_SERVER_STATUS.get(server_name) != "OFFLINE":
+                return False
+            previous_timer = _PENDING_SERVER_STATUS_ALERTS.get(server_name)
+            _PENDING_SERVER_STATUS_ALERTS[server_name] = timer
+        if previous_timer is not None:
+            previous_timer.cancel()
+        timer.start()
+        return True
 
     if is_up and previous_status == "OFFLINE":
         if should_stop_sound:
@@ -1038,52 +1200,97 @@ def maybe_send_server_status_alert(result):
     return False
 
 
-def maybe_send_asp_alert(server_name, asp_value):
-    """Plays the ASP sound on each refresh while any server remains above threshold."""
+def maybe_send_asp_alert(server_name, asp_value, display_name=None):
+    """Escalates ASP alerts using the configured threshold as the critical point.
+
+    When no explicit warning threshold is configured, the warning is set to 2%
+    below the configured threshold to preserve the intended warning/critical
+    escalation model.
+    """
     alert_cfg = load_email_alerts()
     email_enabled = bool(alert_cfg.get("enabled"))
+    display_name = str(display_name or server_name).strip()
 
     try:
         asp_value = float(asp_value if asp_value is not None else 0.0)
     except (TypeError, ValueError):
         asp_value = 0.0
 
-    threshold_percent = float(alert_cfg.get("threshold_percent", 40.0) or 40.0)
+    configured_threshold = float(alert_cfg.get("threshold_percent", 90.0) or 90.0)
+    warning_threshold = float(alert_cfg.get("warning_threshold") if alert_cfg.get("warning_threshold") is not None else configured_threshold * 0.98)
+    critical_threshold = float(alert_cfg.get("critical_threshold", configured_threshold) or configured_threshold)
+    if critical_threshold < warning_threshold:
+        warning_threshold, critical_threshold = critical_threshold, warning_threshold
+
+    threshold_percent = warning_threshold
     cooldown_seconds = max(0, int(float(alert_cfg.get("cooldown_minutes", 10) or 10) * 60))
 
+    if asp_value >= critical_threshold:
+        severity = "CRITICAL"
+        threshold_percent = critical_threshold
+    elif asp_value >= warning_threshold:
+        severity = "WARNING"
+        threshold_percent = warning_threshold
+    else:
+        severity = None
+
     email_should_send = False
+    should_play_sound = False
+    should_stop_sound = False
 
     with _ALERT_STATE_LOCK:
         now = time.monotonic()
 
-        if asp_value < threshold_percent:
-            # Clear state for THIS server
-            _LAST_ASP_ALERT_STATE[server_name] = {"armed": False, "sent_at": 0.0}
-            
-            # ONLY stop sound if NO other servers are currently armed
+        if severity is None:
+            previous_state = _LAST_ASP_ALERT_STATE.get(server_name)
+            previous_severity = previous_state.get("severity") if isinstance(previous_state, dict) else None
+            if previous_severity is not None:
+                _LAST_ASP_ALERT_STATE[server_name] = {"armed": False, "severity": None, "sent_at": 0.0}
+            else:
+                _LAST_ASP_ALERT_STATE.pop(server_name, None)
+
             any_armed = any(st.get("armed", False) for st in _LAST_ASP_ALERT_STATE.values())
+            should_stop_sound = not any(
+                st.get("severity") == "CRITICAL"
+                for st in _LAST_ASP_ALERT_STATE.values()
+                if isinstance(st, dict)
+            )
             if not any_armed:
                 _LAST_ASP_ALERT_STATE.clear()
-                stop_asp_alert_sound()
-            return False
+        else:
+            previous_state = _LAST_ASP_ALERT_STATE.get(server_name)
+            previous_severity = previous_state.get("severity") if isinstance(previous_state, dict) else None
+            _LAST_ASP_ALERT_STATE[server_name] = {"armed": True, "severity": severity, "sent_at": now}
+            should_play_sound = severity == "CRITICAL"
+            should_stop_sound = not any(
+                st.get("severity") == "CRITICAL"
+                for st in _LAST_ASP_ALERT_STATE.values()
+                if isinstance(st, dict)
+            )
 
-        # Mark server as armed
-        _LAST_ASP_ALERT_STATE[server_name] = {"armed": True, "sent_at": now}
+            if email_enabled:
+                email_state = _LAST_ASP_EMAIL_STATE.get(server_name, {"sent_at": None})
+                last_sent = email_state.get("sent_at")
+                if previous_severity != severity or last_sent is None or (now - last_sent) >= cooldown_seconds:
+                    _LAST_ASP_EMAIL_STATE[server_name] = {"sent_at": now}
+                    email_should_send = True
 
-        # Check email cooldown
-        if email_enabled:
-            email_state = _LAST_ASP_EMAIL_STATE.get(server_name, {"sent_at": None})
-            last_sent = email_state.get("sent_at")
-
-            if last_sent is None or (now - last_sent) >= cooldown_seconds:
-                _LAST_ASP_EMAIL_STATE[server_name] = {"sent_at": now}
-                email_should_send = True
-
-    # Play sound as long as this server is active
-    sound_played = play_asp_alert_sound()
+    sound_played = False
+    if should_play_sound:
+        sound_played = play_asp_alert_sound()
+    elif should_stop_sound:
+        stop_asp_alert_sound()
 
     if email_should_send:
-        email_sent = send_asp_alert(server_name, asp_value, threshold_percent)
+        server_config = SERVER_CONFIGS.get(server_name, {})
+        server_ip = str(server_config.get("host", "")).strip() if isinstance(server_config, dict) else ""
+        email_sent = send_asp_alert(
+            display_name,
+            asp_value,
+            critical_threshold,
+            severity=severity,
+            server_ip=server_ip,
+        )
         return email_sent or sound_played
 
     return sound_played
@@ -1138,8 +1345,8 @@ _IpAdapterAddresses._fields_ = [
 ]
 
 
-def has_vpn_ip(prefix="10.212.134"):
-    """Return whether an active Windows adapter owns an IPv4 VPN address."""
+def has_vpn_ip(prefix="10.212."):
+    """Return whether an active Windows adapter owns an IPv4 address in the VPN range."""
     if sys.platform != "win32":
         return False
 
@@ -1200,8 +1407,16 @@ def has_vpn_ip(prefix="10.212.134"):
 
 
 def cleanup_old_logs(days_to_keep=30):
-    """Delete canonical daily log files older than the retention period in all archives."""
-    cutoff_date = datetime.now() - timedelta(days=days_to_keep)
+    """Delete canonical daily log files older than the retention period in all archives.
+
+    Keep the current month and previous month available so the monthly report graph
+    still has enough data for the most recent reporting period even when daily
+    retention is enabled.
+    """
+    now = datetime.now()
+    cutoff_date = now - timedelta(days=days_to_keep)
+    current_month = now.strftime("%Y-%m")
+    previous_month = (now.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
     log_pattern = re.compile(r"^lpar_history_(\d{4}-\d{2}-\d{2})\.json$")
 
     for logs_dir in get_all_logs_dirs():
@@ -1217,6 +1432,9 @@ def cleanup_old_logs(days_to_keep=30):
                 continue
             try:
                 file_date = datetime.strptime(match.group(1), "%Y-%m-%d")
+                month_key = file_date.strftime("%Y-%m")
+                if month_key in {current_month, previous_month}:
+                    continue
                 if file_date < cutoff_date:
                     os.remove(os.path.join(logs_dir, filename))
             except (OSError, ValueError):
@@ -1692,36 +1910,23 @@ class TemporaryStorageJobsRunnable(QRunnable):
     def run(self):
         host = self.cfg.get("host", "") if isinstance(self.cfg, dict) else str(self.cfg)
         db = self.cfg.get("db", "*LOCAL") if isinstance(self.cfg, dict) else "*LOCAL"
-        cache_key = _object_statistics_cache_key(host, db, self.username)
         result = {
             "config_key": self.server,
             "top_temporary_storage_jobs": [],
             "top_temporary_storage_jobs_error": "",
         }
-        cached = _get_cached_temporary_storage_jobs(host, db, self.username)
         conn = None
         try:
-            if cached is None:
-                conn = _new_connection(
-                    host,
-                    db,
-                    self.username,
-                    self.password,
-                    _TEMPORARY_STORAGE_JOBS_QUERY_TIMEOUT_SECONDS,
-                )
-                try:
-                    jobs = _fetch_top_temporary_storage_jobs(conn.cursor())
-                    error = ""
-                except Exception as exc:
-                    jobs = []
-                    error = str(exc)
-                cached = (jobs, error)
-                with _OBJECT_STATISTICS_CACHE_LOCK:
-                    _TEMPORARY_STORAGE_JOBS_CACHE[cache_key] = (
-                        time.monotonic(), jobs, error
-                    )
-            result["top_temporary_storage_jobs"] = cached[0]
-            result["top_temporary_storage_jobs_error"] = cached[1]
+            conn = _new_connection(
+                host,
+                db,
+                self.username,
+                self.password,
+                _TEMPORARY_STORAGE_JOBS_QUERY_TIMEOUT_SECONDS,
+            )
+            result["top_temporary_storage_jobs"] = _fetch_top_temporary_storage_jobs(
+                conn.cursor()
+            )
         except Exception as exc:
             result["top_temporary_storage_jobs_error"] = str(exc)
         finally:
@@ -2047,7 +2252,11 @@ class SingleLparRunnable(QRunnable):
             except Exception:
                 pass
             try:
-                maybe_send_asp_alert(str(result.get("config_key") or self.server), float(result.get("asp", 0.0) or 0.0))
+                maybe_send_asp_alert(
+                    str(result.get("config_key") or self.server),
+                    float(result.get("asp", 0.0) or 0.0),
+                    display_name=str(result.get("host_name") or result.get("server") or "").strip(),
+                )
             except Exception:
                 pass
             _persist_and_emit(self, result)

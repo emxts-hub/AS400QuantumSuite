@@ -14,7 +14,7 @@ from config import APP_VERSION, APP_NAME
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from PyQt6.QtCore import Qt, QTimer, QThread, QThreadPool, QPointF, QRectF, QPropertyAnimation, QAbstractAnimation, pyqtProperty, QSize, pyqtSignal, QEvent
+from PyQt6.QtCore import Qt, QTimer, QThread, QThreadPool, QRunnable, QObject, QPointF, QRectF, QPropertyAnimation, QAbstractAnimation, pyqtProperty, QSize, pyqtSignal, QEvent
 from PyQt6.QtGui import QColor, QFont, QCursor, QIcon, QPixmap, QPainter, QPen, QPolygonF, QBrush, QMouseEvent
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
@@ -444,6 +444,7 @@ class LparCardWidget(QFrame):
         self.is_dark_theme = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
         self.current_status = "OFFLINE"
         self.current_is_critical = True
+        self.current_is_warning = False
         self.current_cpu = 0.0
         self.current_asp = 0.0
         self.current_jobs = 0
@@ -454,6 +455,7 @@ class LparCardWidget(QFrame):
         self.current_object_statistics_updated_at = ""
         self.current_storage_pools = []
         self.current_pool_threads = []
+        self.current_storage_pools_loaded = False
         self.current_top_temporary_storage_jobs = []
         self.current_top_temporary_storage_jobs_error = ""
         self.current_top_temporary_storage_jobs_loaded = False
@@ -467,6 +469,7 @@ class LparCardWidget(QFrame):
         self.last_success_ts = None
         self.retry_count = 0
         self.sync_duration_ms = 0
+        self.refresh_countdown_text = ""
         self.last_error_reason = ""
         self.stale_after_seconds = 90
         self._last_subsystem_signature = None
@@ -637,7 +640,7 @@ class LparCardWidget(QFrame):
 
         self._last_card_style_key = None
         self._last_status_badge_key = None
-        self.set_card_style(is_critical=self.current_is_critical)
+        self.set_card_style(is_critical=self.current_is_critical, is_warning=self.current_is_warning)
         self.set_status(self.current_status)
 
     def _get_alert_pulse(self):
@@ -645,12 +648,16 @@ class LparCardWidget(QFrame):
 
     def _set_alert_pulse(self, value):
         self._alert_pulse = float(value)
-        self.set_card_style(is_critical=self.current_is_critical, force=True)
+        self.set_card_style(
+            is_critical=self.current_is_critical,
+            is_warning=self.current_is_warning,
+            force=True,
+        )
 
     alertPulse = pyqtProperty(float, fget=_get_alert_pulse, fset=_set_alert_pulse)
 
     def _update_alert_animation(self):
-        should_pulse = self.current_is_critical and self.current_status in ("ONLINE", "DEGRADED")
+        should_pulse = (self.current_is_critical or self.current_is_warning) and self.current_status in ("ONLINE", "DEGRADED")
         if should_pulse and self._alert_animation.state() != QAbstractAnimation.State.Running:
             self._alert_animation.start()
         elif not should_pulse and self._alert_animation.state() != QAbstractAnimation.State.Stopped:
@@ -702,6 +709,7 @@ class LparCardWidget(QFrame):
                 updated_at=self.current_object_statistics_updated_at,
                 storage_pools=self.current_storage_pools,
                 pool_threads=self.current_pool_threads,
+                pool_data_loaded=self.current_storage_pools_loaded,
                 top_temporary_storage_jobs=self.current_top_temporary_storage_jobs,
                 top_temporary_storage_jobs_error=self.current_top_temporary_storage_jobs_error,
                 top_temporary_storage_jobs_loaded=self.current_top_temporary_storage_jobs_loaded,
@@ -715,6 +723,7 @@ class LparCardWidget(QFrame):
             self.current_object_statistics_updated_at,
             self.current_storage_pools,
             self.current_pool_threads,
+            pool_data_loaded=self.current_storage_pools_loaded,
         )
         self.object_statistics_dialog.update_temporary_storage_jobs(
             self.current_top_temporary_storage_jobs,
@@ -740,6 +749,7 @@ class LparCardWidget(QFrame):
                 self.current_object_statistics_updated_at,
                 self.current_storage_pools,
                 self.current_pool_threads,
+                pool_data_loaded=self.current_storage_pools_loaded,
             )
 
     def set_top_temporary_storage_jobs(self, jobs, error="", loaded=True):
@@ -814,14 +824,19 @@ class LparCardWidget(QFrame):
     def _clear_object_statistics_dialog(self):
         self.object_statistics_dialog = None
 
-    def set_card_style(self, is_critical=False, force=False):
-        key = (self.is_dark_theme, bool(is_critical))
+    def set_card_style(self, is_critical=False, is_warning=False, force=False):
+        key = (self.is_dark_theme, bool(is_critical), bool(is_warning))
         if self._last_card_style_key == key and not force:
             return
         self._last_card_style_key = key
 
         if not self.is_dark_theme:
-            border_color = self._alert_border_color("#d0d7de", "#cf222e") if is_critical else "#d0d7de"
+            if is_critical:
+                border_color = self._alert_border_color("#d0d7de", "#cf222e")
+            elif is_warning:
+                border_color = self._alert_border_color("#d0d7de", "#bf8700")
+            else:
+                border_color = "#d0d7de"
             self.setStyleSheet(f"""
                 LparCardWidget {{
                     background-color: #ffffff;
@@ -839,6 +854,18 @@ class LparCardWidget(QFrame):
 
         if is_critical:
             border_color = self._alert_border_color("#30363d", "#f85149")
+            self.setStyleSheet("""
+                LparCardWidget {
+                    background-color: #161b22;
+                    border: 2px solid %s;
+                    border-radius: 10px;
+                }
+                QLabel {
+                    background-color: transparent;
+                }
+            """ % border_color)
+        elif is_warning:
+            border_color = self._alert_border_color("#30363d", "#e3b341")
             self.setStyleSheet("""
                 LparCardWidget {
                     background-color: #161b22;
@@ -874,16 +901,27 @@ class LparCardWidget(QFrame):
         last_success_text = f"Last success: {self.last_success_ts}" if self.last_success_ts else "Last success: never"
         retry_text = f" | Retries: {self.retry_count}"
         sync_text = f" | Sync: {self.sync_duration_ms}ms" if self.sync_duration_ms else ""
+        refresh_text = f" | Next refresh: {self.refresh_countdown_text}" if self.refresh_countdown_text else ""
         reason_text = f" | {self.last_error_reason}" if self.last_error_reason else ""
-        summary = f"{last_success_text}{retry_text}{sync_text}{reason_text}"
+        summary = f"{last_success_text}{retry_text}{sync_text}{refresh_text}{reason_text}"
         if len(summary) > 120:
             summary = summary[:117] + "..."
         self.health_label.setText(summary)
 
+    def set_refresh_countdown(self, seconds=None, refreshing=False):
+        if refreshing:
+            self.refresh_countdown_text = "refreshing"
+        elif seconds is None:
+            self.refresh_countdown_text = ""
+        else:
+            self.refresh_countdown_text = f"{max(0, int(seconds))}s"
+        self._sync_health_summary()
+
     def set_status(self, status):
         self.current_status = status
         self.set_card_style(
-            is_critical=self.current_is_critical and status not in ("CONNECTING", "SYNCING")
+            is_critical=self.current_is_critical and status not in ("CONNECTING", "SYNCING"),
+            is_warning=self.current_is_warning and status not in ("CONNECTING", "SYNCING"),
         )
         self._update_alert_animation()
         self._sync_health_summary()
@@ -1015,6 +1053,7 @@ class LparCardWidget(QFrame):
         )
         storage_pools = data.get("storage_pools", self.current_storage_pools)
         pool_threads = data.get("pool_threads", self.current_pool_threads)
+        storage_pools_loaded = self.current_storage_pools_loaded
         web_app_jobs_detail = data.get("web_app_jobs_detail", {})
         web_app_ports = data.get("web_app_ports", [])
         subsystems = data.get("subsystems", [])
@@ -1034,9 +1073,12 @@ class LparCardWidget(QFrame):
             object_statistics_updated_at = self.current_object_statistics_updated_at
             storage_pools = self.current_storage_pools
             pool_threads = self.current_pool_threads
+            storage_pools_loaded = self.current_storage_pools_loaded
             web_app_jobs_detail = self.current_web_app_jobs_detail
             web_app_ports = self.current_web_app_ports
         elif status in ("ONLINE", "DEGRADED"):
+            if "storage_pools" in data or "pool_threads" in data:
+                storage_pools_loaded = True
             if completed_at:
                 self.last_success_ts = completed_at
             elif self.last_success_ts is None or self.current_status not in ("ONLINE", "DEGRADED"):
@@ -1049,8 +1091,18 @@ class LparCardWidget(QFrame):
 
         cpu_sharing = str(data.get("cpu_sharing_attribute", "")).upper()
         is_uncapped = "UNCAPPED" in cpu_sharing or cpu > 100.0
-        threshold_percent = float(load_email_alerts().get("threshold_percent", 40.0) or 40.0)
-        is_critical = asp >= threshold_percent
+        alert_cfg = load_email_alerts()
+        configured_threshold = float(alert_cfg.get("threshold_percent", 40.0) or 40.0)
+        warning_threshold = float(
+            alert_cfg.get("warning_threshold")
+            if alert_cfg.get("warning_threshold") is not None
+            else configured_threshold * 0.98
+        )
+        critical_threshold = float(alert_cfg.get("critical_threshold", configured_threshold) or configured_threshold)
+        if critical_threshold < warning_threshold:
+            warning_threshold, critical_threshold = critical_threshold, warning_threshold
+        is_critical = asp >= critical_threshold
+        is_warning = warning_threshold <= asp < critical_threshold
 
         signature = (
             status,
@@ -1070,7 +1122,9 @@ class LparCardWidget(QFrame):
             repr(ports),
             is_uncapped,
             is_critical,
-            threshold_percent,
+            is_warning,
+            warning_threshold,
+            critical_threshold,
             self.last_error_reason,
             self.retry_count,
             self.sync_duration_ms,
@@ -1091,6 +1145,7 @@ class LparCardWidget(QFrame):
         self.current_object_statistics_updated_at = object_statistics_updated_at
         self.current_storage_pools = storage_pools if isinstance(storage_pools, list) else []
         self.current_pool_threads = pool_threads if isinstance(pool_threads, list) else []
+        self.current_storage_pools_loaded = storage_pools_loaded
         self.current_web_app_jobs_detail = web_app_jobs_detail if isinstance(web_app_jobs_detail, dict) else {}
         self.current_web_app_ports = web_app_ports if isinstance(web_app_ports, list) else []
         self.current_subsystems_data = subsystems
@@ -1102,10 +1157,11 @@ class LparCardWidget(QFrame):
             self.uncapped_badge.hide()
 
         self.current_is_critical = is_critical
-        self.set_card_style(is_critical=is_critical)
+        self.current_is_warning = is_warning
+        self.set_card_style(is_critical=is_critical, is_warning=is_warning)
         self._update_alert_animation()
 
-        label_key = (status, is_critical, self.is_dark_theme)
+        label_key = (status, is_critical, is_warning, self.is_dark_theme)
         if self._last_status_badge_key != label_key:
             self._last_status_badge_key = label_key
             if status in ("ONLINE", "DEGRADED"):
@@ -1113,6 +1169,11 @@ class LparCardWidget(QFrame):
                     self.status_badge.setText("CRITICAL ●")
                     self.status_badge.setStyleSheet(
                         "color: #f85149; font-weight: bold; background-color: transparent;"
+                    )
+                elif is_warning:
+                    self.status_badge.setText("WARNING ●")
+                    self.status_badge.setStyleSheet(
+                        "color: #e3b341; font-weight: bold; background-color: transparent;"
                     )
                 elif status == "DEGRADED":
                     self.status_badge.setText("DEGRADED ●")
@@ -1164,6 +1225,7 @@ class LparCardWidget(QFrame):
                 self.current_object_statistics_updated_at,
                 self.current_storage_pools,
                 self.current_pool_threads,
+                pool_data_loaded=self.current_storage_pools_loaded,
             )
         if self.webapp_jobs_dialog is not None:
             self.webapp_jobs_dialog.update_data(
@@ -1389,6 +1451,31 @@ def resource_path(relative_path):
 
 
 PING_TARGET_IP = "189.88.18.66"
+GATEWAY_PING_INTERVAL_MS = 5000
+GATEWAY_PING_MAX_AGE_SECONDS = 10
+GATEWAY_PING_MAX_ATTEMPTS = 3
+_ACTIVE_GATEWAY_PING_RUNNABLES = set()
+
+
+class GatewayPingSignals(QObject):
+    result_ready = pyqtSignal(object)
+
+
+class GatewayPingRunnable(QRunnable):
+    def __init__(self, measure_ping):
+        super().__init__()
+        self.measure_ping = measure_ping
+        self.signals = GatewayPingSignals()
+
+    def run(self):
+        try:
+            latency_ms = self.measure_ping(PING_TARGET_IP)
+        except Exception:
+            latency_ms = None
+        try:
+            self.signals.result_ready.emit(latency_ms)
+        finally:
+            _ACTIVE_GATEWAY_PING_RUNNABLES.discard(self)
 
 
 class IBMiDashboard(QMainWindow):
@@ -1421,6 +1508,14 @@ class IBMiDashboard(QMainWindow):
         self._log_history_refresh_timer.setInterval(750)
         self._log_history_refresh_timer.timeout.connect(self._refresh_log_history_after_results)
         self.auto_refresh_paused = False
+        self._last_gateway_latency_ms = None
+        self._last_gateway_ping_at = 0.0
+        self._gateway_ping_started_at = 0.0
+        self._gateway_ping_pending = False
+        self._gateway_ping_runnable = None
+        self._gateway_ping_attempts = 0
+        self._pending_monitoring_start = False
+        self._vpn_disconnect_alerted = False
         self.last_refresh_success_at = None
         self.last_refresh_started_at = None
         self._last_global_summary_signature = None
@@ -1428,6 +1523,11 @@ class IBMiDashboard(QMainWindow):
 
         self.thread_pool = cast(QThreadPool, QThreadPool.globalInstance())
         self.thread_pool.setMaxThreadCount(8)
+        self.gateway_ping_thread_pool = QThreadPool(self)
+        self.gateway_ping_thread_pool.setMaxThreadCount(1)
+        self.gateway_ping_timer = QTimer(self)
+        self.gateway_ping_timer.setInterval(GATEWAY_PING_INTERVAL_MS)
+        self.gateway_ping_timer.timeout.connect(self._check_monitoring_gateway)
         self.object_statistics_thread_pool = QThreadPool(self)
         self.object_statistics_thread_pool.setMaxThreadCount(2)
         self.object_statistics_runnables = {}
@@ -1435,10 +1535,21 @@ class IBMiDashboard(QMainWindow):
         self.temporary_storage_thread_pool = QThreadPool(self)
         self.temporary_storage_thread_pool.setMaxThreadCount(2)
         self.temporary_storage_runnables = {}
-        self.temporary_storage_next_fetch = {}
-        self.min_refresh_interval_ms = 5000  # Refresh live ASP/CPU data every 5s for near real-time monitoring
-        self.refresh_interval_ms = self.min_refresh_interval_ms
+        try:
+            configured_refresh_interval_ms = int(
+                load_email_alerts().get("refresh_interval_ms", 0) or 0
+            )
+        except (TypeError, ValueError):
+            configured_refresh_interval_ms = 0
+        self.refresh_interval_ms = (
+            configured_refresh_interval_ms
+            if configured_refresh_interval_ms in (0, 3000, 5000, 10000)
+            else 0
+        )
         self.server_refresh_timers = {}  # Per-server refresh timers for independent refresh
+        self.refresh_countdown_timer = QTimer(self)
+        self.refresh_countdown_timer.setInterval(1000)
+        self.refresh_countdown_timer.timeout.connect(self._update_card_refresh_countdowns)
         self._refresh_in_progress = False
         self._refresh_queued = False
         self.server_retry_counts = {}
@@ -1956,10 +2067,11 @@ class IBMiDashboard(QMainWindow):
         lpar_layout.setContentsMargins(10, 8, 10, 8)
 
         self.lpar_table = QTableWidget()
-        self.lpar_table.setColumnCount(7)
+        self.lpar_table.setColumnCount(8)
         self.lpar_table.setHorizontalHeaderLabels([
             "IP / Hostname", "Database Name", "Daily Backup Name",
-            "Journal Backup Name", "Expected Subsystems", "Monitored Ports (Port:Name)", "Web Apps (Job:Port)"
+            "Journal Backup Name", "Monthly Backup Name", "Expected Subsystems",
+            "Monitored Ports (Port:Name)", "Web Apps (Job:Port)"
         ])
         self.lpar_table.setAlternatingRowColors(True)
         self.lpar_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -2298,13 +2410,15 @@ class IBMiDashboard(QMainWindow):
                         web_app_parts.append(item)
             daily_name = cfg.get("daily_backup_name", "DAILYSWA") if isinstance(cfg, dict) else "DAILYSWA"
             journal_name = cfg.get("journal_backup_name", "DAILYSWA") if isinstance(cfg, dict) else "DAILYSWA"
+            monthly_name = cfg.get("monthly_backup_name", "MONTHLYBKU") if isinstance(cfg, dict) else "MONTHLYBKU"
             self.lpar_table.setItem(row, 0, QTableWidgetItem(host))
             self.lpar_table.setItem(row, 1, QTableWidgetItem(db))
             self.lpar_table.setItem(row, 2, QTableWidgetItem(str(daily_name or "DAILYSWA")))
             self.lpar_table.setItem(row, 3, QTableWidgetItem(str(journal_name or "DAILYSWA")))
-            self.lpar_table.setItem(row, 4, QTableWidgetItem(subsystems_str))
-            self.lpar_table.setItem(row, 5, QTableWidgetItem(", ".join(port_parts)))
-            self.lpar_table.setItem(row, 6, QTableWidgetItem(", ".join(web_app_parts)))
+            self.lpar_table.setItem(row, 4, QTableWidgetItem(str(monthly_name or "MONTHLYBKU")))
+            self.lpar_table.setItem(row, 5, QTableWidgetItem(subsystems_str))
+            self.lpar_table.setItem(row, 6, QTableWidgetItem(", ".join(port_parts)))
+            self.lpar_table.setItem(row, 7, QTableWidgetItem(", ".join(web_app_parts)))
 
     def _add_lpar_row(self):
         row = self.lpar_table.rowCount()
@@ -2313,9 +2427,10 @@ class IBMiDashboard(QMainWindow):
         self.lpar_table.setItem(row, 1, QTableWidgetItem("*LOCAL"))
         self.lpar_table.setItem(row, 2, QTableWidgetItem("DAILYSWA"))
         self.lpar_table.setItem(row, 3, QTableWidgetItem("DAILYSWA"))
-        self.lpar_table.setItem(row, 4, QTableWidgetItem("QINTER, QBATCH, QSYSWRK"))
-        self.lpar_table.setItem(row, 5, QTableWidgetItem("21:FTP, 22:SSH"))
-        self.lpar_table.setItem(row, 6, QTableWidgetItem("DLRWEB:10078"))
+        self.lpar_table.setItem(row, 4, QTableWidgetItem("MONTHLYBKU"))
+        self.lpar_table.setItem(row, 5, QTableWidgetItem("QINTER, QBATCH, QSYSWRK"))
+        self.lpar_table.setItem(row, 6, QTableWidgetItem("21:FTP, 22:SSH"))
+        self.lpar_table.setItem(row, 7, QTableWidgetItem("DLRWEB:10078"))
         self._update_settings_save_state()
 
     def _remove_lpar_row(self):
@@ -2386,14 +2501,16 @@ class IBMiDashboard(QMainWindow):
             db = self.lpar_table.item(row, 1).text().strip() if self.lpar_table.item(row, 1) else "*LOCAL"
             daily_backup_name = self.lpar_table.item(row, 2).text().strip().upper() if self.lpar_table.item(row, 2) else "DAILYSWA"
             journal_backup_name = self.lpar_table.item(row, 3).text().strip().upper() if self.lpar_table.item(row, 3) else "DAILYSWA"
-            subsystems = self.lpar_table.item(row, 4).text().strip() if self.lpar_table.item(row, 4) else ""
-            ports = self.lpar_table.item(row, 5).text().strip() if self.lpar_table.item(row, 5) else ""
-            web_apps = self.lpar_table.item(row, 6).text().strip() if self.lpar_table.item(row, 6) else ""
+            monthly_backup_name = self.lpar_table.item(row, 4).text().strip().upper() if self.lpar_table.item(row, 4) else "MONTHLYBKU"
+            subsystems = self.lpar_table.item(row, 5).text().strip() if self.lpar_table.item(row, 5) else ""
+            ports = self.lpar_table.item(row, 6).text().strip() if self.lpar_table.item(row, 6) else ""
+            web_apps = self.lpar_table.item(row, 7).text().strip() if self.lpar_table.item(row, 7) else ""
             new_configs[host.upper()] = {
                 "host": host,
                 "db": db,
                 "daily_backup_name": daily_backup_name or "DAILYSWA",
                 "journal_backup_name": journal_backup_name or "DAILYSWA",
+                "monthly_backup_name": monthly_backup_name or "MONTHLYBKU",
             }
             new_subsystems[host.upper()] = [s.strip().upper() for s in subsystems.split(",") if s.strip()]
             parsed_ports = []
@@ -2493,6 +2610,7 @@ class IBMiDashboard(QMainWindow):
 
         self.active_server_configs.clear()
         self.active_server_configs.update(new_configs)
+        self.refresh_interval_ms = refresh_interval_ms
         self.backup_management_widget.server_configs = self.active_server_configs
         SERVER_CONFIGS.clear(); SERVER_CONFIGS.update(new_configs)
         EXPECTED_SUBSYSTEMS.clear(); EXPECTED_SUBSYSTEMS.update(new_subsystems)
@@ -2572,6 +2690,9 @@ class IBMiDashboard(QMainWindow):
         if not self.active_server_configs:
             return {}
 
+        if not self._credential_vpn_preflight():
+            return {}
+
         result = CredentialCheckThread.validate_server_credentials(
             self.active_server_configs,
             username,
@@ -2581,6 +2702,19 @@ class IBMiDashboard(QMainWindow):
         self._credential_check_results = result
         self._handle_credential_check_results(result)
         return result
+
+    def _credential_vpn_preflight(self):
+        if has_vpn_ip():
+            return True
+
+        message = "VPN connection not detected. Connect to the VPN and confirm your IPv4 address starts with 10.212."
+        self.credentials_validated = False
+        self.cred_log.setPlainText(f"Credential validation skipped. {message}")
+        self.status_label.setText(f"Warning: {message}")
+        self.status_label.setStyleSheet("color: #f85149; font-weight: bold; font-size: 11px; background-color: transparent;")
+        self._update_start_controls_state()
+        QMessageBox.warning(self, "Check VPN Network", message)
+        return False
 
     def _update_credential_countdown(self):
         deadline = getattr(self, "_credential_check_deadline", None)
@@ -2632,6 +2766,11 @@ class IBMiDashboard(QMainWindow):
             self.toggle_btn.setText("Check Login Creds")
             self.status_label.setText("Error: Configure at least one LPAR before validating credentials.")
             self.status_label.setStyleSheet("color: #f85149; font-weight: bold; font-size: 11px; background-color: transparent;")
+            return {}
+
+        if not self._credential_vpn_preflight():
+            self.toggle_btn.setEnabled(True)
+            self.toggle_btn.setText("Check Login Creds")
             return {}
 
         self.credentials_validated = False
@@ -2943,9 +3082,10 @@ class IBMiDashboard(QMainWindow):
 
     def _update_ping_indicator(self):
         if not hasattr(self, "ping_status_label"):
-            return
+            return None
 
-        latency_ms = self._measure_gateway_ping_ms(PING_TARGET_IP)
+        self._request_gateway_ping()
+        latency_ms = self._last_gateway_latency_ms
         if latency_ms is None:
             text = "No ping"
             color = "#8b949e"
@@ -2966,33 +3106,119 @@ class IBMiDashboard(QMainWindow):
             "}"
         )
         self.ping_status_label.setToolTip(f"Gateway ping: {text} to {PING_TARGET_IP}")
+        return latency_ms
+
+    def _request_gateway_ping(self, force=False):
+        if self._gateway_ping_pending:
+            return
+
+        now = time.monotonic()
+        if not force and now - self._gateway_ping_started_at < GATEWAY_PING_INTERVAL_MS / 1000:
+            return
+
+        runnable = GatewayPingRunnable(self._measure_gateway_ping_ms)
+        runnable.signals.result_ready.connect(self._on_gateway_ping_finished)
+        self._gateway_ping_runnable = runnable
+        self._gateway_ping_pending = True
+        self._gateway_ping_started_at = now
+        _ACTIVE_GATEWAY_PING_RUNNABLES.add(runnable)
+        self.gateway_ping_thread_pool.start(runnable)
+
+    def _on_gateway_ping_finished(self, latency_ms):
+        self._gateway_ping_pending = False
+        self._gateway_ping_runnable = None
+        self._last_gateway_latency_ms = latency_ms
+        self._last_gateway_ping_at = time.monotonic()
+        self._update_ping_indicator()
+
+        if latency_ms is None:
+            if not (self._pending_monitoring_start or self.is_monitoring):
+                self._gateway_ping_attempts = 0
+                return
+
+            self._gateway_ping_attempts += 1
+            if self._gateway_ping_attempts < GATEWAY_PING_MAX_ATTEMPTS:
+                next_attempt = self._gateway_ping_attempts + 1
+                self.status_label.setText(
+                    f"Warning: Gateway ping failed. Reconnecting "
+                    f"(attempt {next_attempt} of {GATEWAY_PING_MAX_ATTEMPTS})..."
+                )
+                self.status_label.setStyleSheet(
+                    "color: #e3b341; font-weight: bold; font-size: 11px; background-color: transparent;"
+                )
+                self._request_gateway_ping(force=True)
+                return
+
+            self._gateway_ping_attempts = 0
+            if self._pending_monitoring_start:
+                self._pending_monitoring_start = False
+                self._show_vpn_connection_warning()
+            else:
+                self._handle_vpn_disconnect()
+            return
+
+        self._gateway_ping_attempts = 0
+        if self._pending_monitoring_start:
+            self._pending_monitoring_start = False
+            self.start_monitoring()
+
+    def _check_monitoring_gateway(self):
+        if self.is_monitoring:
+            self._request_gateway_ping(force=True)
+
+    def _show_vpn_connection_warning(self):
+        message = "Gateway latency is unavailable. Check your VPN connection before monitoring."
+        self.status_label.setText(f"Warning: {message}")
+        self.status_label.setStyleSheet("color: #f85149; font-weight: bold; font-size: 11px; background-color: transparent;")
+        QMessageBox.warning(self, "VPN Connection Required", message)
+
+    def _handle_vpn_disconnect(self):
+        if self._vpn_disconnect_alerted:
+            return
+
+        self._vpn_disconnect_alerted = True
+        self.stop_monitoring()
+        self.status_label.setText("Warning: Gateway ping failed. Auto-refresh stopped. Check your VPN connection.")
+        self.status_label.setStyleSheet("color: #f85149; font-weight: bold; font-size: 11px; background-color: transparent;")
+        QMessageBox.warning(
+            self,
+            "VPN Connection Lost",
+            "Gateway ping failed. Auto-refresh has stopped. Check your VPN connection, then restart monitoring.",
+        )
+
+    def _refresh_network_available(self):
+        if has_vpn_ip():
+            return True
+        ping_is_fresh = time.monotonic() - self._last_gateway_ping_at <= GATEWAY_PING_MAX_AGE_SECONDS
+        if self._last_gateway_latency_ms is not None and ping_is_fresh:
+            return True
+        self._request_gateway_ping()
+        return False
 
     def _server_refresh_interval_ms(self, server_name, result=None):
-        base = self.min_refresh_interval_ms
+        base = self.refresh_interval_ms
         retry_count = self.server_retry_counts.get(server_name, 0)
         if retry_count > 0:
-            base = min(max(8000, self.min_refresh_interval_ms // 2), 60000)
             base = min(60000, max(8000, base + retry_count * 5000))
         if result is not None:
             status = str(result.get("status", "OFFLINE")).upper()
             if status in ("OFFLINE", "AUTH_ERROR"):
                 base = min(base, 20000)
-            duration_ms = int(result.get("sync_duration_ms") or 0)
-            if duration_ms >= 7000:
-                base = min(base, max(12000, self.min_refresh_interval_ms // 2))
-        return max(8000, int(base))
+        return max(0, int(base))
 
     def _next_retry_delay_ms(self):
         if not self.latest_results_cache:
-            return self.min_refresh_interval_ms
+            return max(8000, self.refresh_interval_ms)
         candidate_intervals = []
         for server_name, result in self.latest_results_cache.items():
             candidate_intervals.append(self._server_refresh_interval_ms(server_name, result))
-        return max(8000, min(candidate_intervals)) if candidate_intervals else self.min_refresh_interval_ms
+        return max(8000, min(candidate_intervals)) if candidate_intervals else max(8000, self.refresh_interval_ms)
 
     def _gateway_ping_reachable(self):
-        latency_ms = self._measure_gateway_ping_ms(PING_TARGET_IP)
-        return latency_ms is not None
+        return (
+            self._last_gateway_latency_ms is not None
+            and time.monotonic() - self._last_gateway_ping_at <= GATEWAY_PING_MAX_AGE_SECONDS
+        )
 
     def _register_server_result(self, server_name, result):
         status = str(result.get("status", "OFFLINE")).upper()
@@ -3396,14 +3622,20 @@ class IBMiDashboard(QMainWindow):
             self.status_label.setStyleSheet("color: #f85149; font-size: 11px; background-color: transparent;")
             return
 
-        if not has_vpn_ip():
-            self.status_label.setText("Error: VPN connection not detected. Please check your VPN before starting monitoring.")
-            self.status_label.setStyleSheet("color: #f85149; font-size: 11px; background-color: transparent;")
+        if not self._refresh_network_available():
+            self._pending_monitoring_start = True
+            self.status_label.setText("Status: Checking VPN gateway latency before starting monitoring...")
+            self.status_label.setStyleSheet("color: #e3b341; font-size: 11px; background-color: transparent;")
+            self._request_gateway_ping(force=True)
             return
 
+        self._pending_monitoring_start = False
+        self._vpn_disconnect_alerted = False
         self.refresh_generation += 1
         self.is_monitoring = True
         self.auto_refresh_paused = False
+        self.gateway_ping_timer.start()
+        self.refresh_countdown_timer.start()
         reset_asp_alert_sound()
         self._set_settings_editable(False)
         self.retry_status_label.setVisible(False)
@@ -3420,6 +3652,10 @@ class IBMiDashboard(QMainWindow):
     def stop_monitoring(self):
         self.is_monitoring = False
         self.auto_refresh_paused = False
+        self._pending_monitoring_start = False
+        self._gateway_ping_attempts = 0
+        self.gateway_ping_timer.stop()
+        self.refresh_countdown_timer.stop()
         self.refresh_generation += 1
         self._refresh_in_progress = False
         self._refresh_queued = False
@@ -3435,6 +3671,7 @@ class IBMiDashboard(QMainWindow):
         self.active_runnables.clear()
 
         for card in self.card_widgets.values():
+            card.set_refresh_countdown()
             card.set_status("STOPPED")
         self.global_alerts.update_summary(
             list(self.latest_results_cache.values()),
@@ -3465,16 +3702,37 @@ class IBMiDashboard(QMainWindow):
             if self.server_retry_counts.get(server_name, 0) > 0:
                 delay_ms = self._next_retry_delay_ms()
             else:
-                delay_ms = self.min_refresh_interval_ms
+                delay_ms = self.refresh_interval_ms
         timer.setInterval(delay_ms)
         timer.timeout.connect(lambda srv=server_name: self._refresh_single_server(srv))
         timer.start()
         self.server_refresh_timers[server_name] = timer
+        self._update_card_refresh_countdowns()
+
+    def _update_card_refresh_countdowns(self):
+        if not self.is_monitoring:
+            for card in self.card_widgets.values():
+                card.set_refresh_countdown()
+            return
+
+        running_servers = {
+            getattr(runnable, "server", None)
+            for runnable in self.active_runnables
+        }
+        for server_name, card in self.card_widgets.items():
+            timer = self.server_refresh_timers.get(server_name)
+            if timer is not None and timer.isActive():
+                remaining_ms = max(0, timer.remainingTime())
+                card.set_refresh_countdown(math.ceil(remaining_ms / 1000))
+            elif server_name in running_servers:
+                card.set_refresh_countdown(refreshing=True)
+            else:
+                card.set_refresh_countdown()
 
     def _schedule_independent_refreshes(self):
         """Schedule independent per-server refresh timers based on fetch completion time."""
-        for idx, server_name in enumerate(self.active_server_configs.keys()):
-            base_delay = self.min_refresh_interval_ms + (idx * 500)
+        for server_name in self.active_server_configs:
+            base_delay = self.refresh_interval_ms
             if self.server_retry_counts.get(server_name, 0) > 0:
                 base_delay = self._next_retry_delay_ms()
             self._reschedule_server_timer(server_name, base_delay)
@@ -3487,12 +3745,16 @@ class IBMiDashboard(QMainWindow):
             if timer is None or not timer.isActive():
                 self._reschedule_server_timer(server_name)
 
-    def _refresh_single_server(self, server_name):
+    def _refresh_single_server(self, server_name, network_checked=False):
         """Refresh a single server independently."""
         if not self.is_monitoring or self.auto_refresh_paused:
             return
         
         if server_name not in self.active_server_configs:
+            return
+
+        if not network_checked and not self._refresh_network_available():
+            self._reschedule_server_timer(server_name, self._next_retry_delay_ms())
             return
         
         username = self.user_input.text().strip()
@@ -3500,6 +3762,10 @@ class IBMiDashboard(QMainWindow):
         
         if not username or not password:
             return
+
+        card = self.card_widgets.get(server_name)
+        if card is not None:
+            card.set_refresh_countdown(refreshing=True)
         
         cfg = self.active_server_configs[server_name]
         runnable = SingleLparRunnable(
@@ -3585,14 +3851,6 @@ class IBMiDashboard(QMainWindow):
         if cache_key in self.temporary_storage_runnables:
             return
 
-        card = self.card_widgets.get(server_name)
-        if time.monotonic() < self.temporary_storage_next_fetch.get(cache_key, 0.0):
-            cached = worker._get_cached_temporary_storage_jobs(host, db, username)
-            if cached is not None:
-                if card is not None:
-                    card.set_top_temporary_storage_jobs(*cached)
-                return
-
         runnable = TemporaryStorageJobsRunnable(
             server_name,
             cfg,
@@ -3610,9 +3868,6 @@ class IBMiDashboard(QMainWindow):
     def _on_temporary_storage_jobs_fetched(self, data, cache_key, runnable):
         if self.temporary_storage_runnables.get(cache_key) is runnable:
             self.temporary_storage_runnables.pop(cache_key, None)
-        self.temporary_storage_next_fetch[cache_key] = (
-            time.monotonic() + worker._TEMPORARY_STORAGE_JOBS_CACHE_TTL_SECONDS
-        )
         config_key = data.get("config_key") or cache_key[0]
         card = self.card_widgets.get(config_key)
         if card is not None:
@@ -3625,6 +3880,9 @@ class IBMiDashboard(QMainWindow):
         """Handle individual server fetch completion and schedule next refresh for that server."""
         self.active_runnables.discard(runnable)
         if not self.is_monitoring or generation != self.refresh_generation:
+            return
+        if not self._refresh_network_available():
+            self._reschedule_server_timer(server_name, self._next_retry_delay_ms())
             return
 
         config_key = lpar_data.get("config_key") or lpar_data.get("server") or runnable.server
@@ -3661,7 +3919,7 @@ class IBMiDashboard(QMainWindow):
 
         self._refresh_global_status_summary()
 
-        retry_delay = self._next_retry_delay_ms() if self.server_retry_counts.get(server_name, 0) > 0 else self.min_refresh_interval_ms
+        retry_delay = self._next_retry_delay_ms() if self.server_retry_counts.get(server_name, 0) > 0 else self.refresh_interval_ms
         self._reschedule_server_timer(server_name, retry_delay)
         self._ensure_server_timers_alive()
         self._hide_sync_loading()
@@ -3669,6 +3927,9 @@ class IBMiDashboard(QMainWindow):
     def _on_single_server_failed(self, failure, generation, runnable, server_name):
         self.active_runnables.discard(runnable)
         if not self.is_monitoring or generation != self.refresh_generation:
+            return
+        if not self._refresh_network_available():
+            self._reschedule_server_timer(server_name, self._next_retry_delay_ms())
             return
 
         config_key = failure.get("server") or runnable.server
@@ -3685,6 +3946,9 @@ class IBMiDashboard(QMainWindow):
             return
 
         if self.auto_refresh_paused and not force:
+            return
+
+        if not self._refresh_network_available():
             return
 
         if not getattr(self.log_viewer_widget, 'active_lpars', None):
@@ -3723,7 +3987,7 @@ class IBMiDashboard(QMainWindow):
             card.set_status("SYNCING")
 
         for server_name in self.active_server_configs.keys():
-            self._refresh_single_server(server_name)
+            self._refresh_single_server(server_name, network_checked=True)
 
         self._hide_sync_loading()
 
@@ -3766,7 +4030,7 @@ class IBMiDashboard(QMainWindow):
             card.update_data(lpar_data)
             card._sync_health_summary()
 
-        self._reschedule_server_timer(runnable.server, self.min_refresh_interval_ms)
+        self._reschedule_server_timer(runnable.server, self.refresh_interval_ms)
         if self.completed_threads_count >= self.pending_lpar_count:
             self.on_all_lpars_finished()
 

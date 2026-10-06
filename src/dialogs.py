@@ -4,10 +4,11 @@ import re
 import sys
 import smtplib
 import webbrowser
+from math import atan2, degrees, hypot
 from typing import Optional, cast
 from email.message import EmailMessage
 from PyQt6.QtCore import QThread, QTimer, pyqtSignal, Qt, QRectF
-from PyQt6.QtGui import QColor, QCursor, QFont, QPainter, QPen
+from PyQt6.QtGui import QColor, QCursor, QFont, QMouseEvent, QPainter, QPen
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QTextEdit, QComboBox,
@@ -210,6 +211,7 @@ class AppInfoDialog(QDialog):
             " font-weight: bold; letter-spacing: 0.5px;'>AS400 QUANTUM SUITE</h2>"
             "<div style='color: #cbd5e1; font-size: 12px; margin-bottom: 12px;'>"
             "Stack: Python | SQL<br>"
+            "Stack Runtime: Python | PyQt6 | SQL | DB2/ODBC<br>"
             f"Version: {version_str}"
             "</div>"
             "<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'>"
@@ -539,6 +541,7 @@ class StoragePoolDonutCanvas(QWidget):
         self.value_key = ""
         self.loaded = False
         self.setMinimumHeight(170)
+        self.setMouseTracking(True)
 
     def set_data(self, entries, value_key, loaded):
         self.entries = [entry for entry in entries if isinstance(entry, dict)]
@@ -546,9 +549,7 @@ class StoragePoolDonutCanvas(QWidget):
         self.loaded = loaded
         self.update()
 
-    def paintEvent(self, a0):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    def _values_and_total(self):
         values = []
         for entry in self.entries:
             try:
@@ -557,8 +558,43 @@ class StoragePoolDonutCanvas(QWidget):
                 value = 0.0
             if value > 0:
                 values.append((entry, value))
+        return values, sum(value for _, value in values)
 
-        total = sum(value for _, value in values)
+    def _tooltip_at(self, position):
+        values, total = self._values_and_total()
+        if total <= 0:
+            return ""
+
+        diameter = max(80.0, min(self.width() * 0.55, self.height() - 12))
+        center_x = self.width() / 2
+        center_y = self.height() / 2
+        distance = hypot(position.x() - center_x, position.y() - center_y)
+        if distance < diameter * 0.55 / 2 or distance > diameter / 2:
+            return ""
+
+        angle = (degrees(atan2(center_y - position.y(), position.x() - center_x)) - 90) % 360
+        start_angle = 0.0
+        for entry, value in values:
+            span_angle = value / total * 360
+            if start_angle <= angle < start_angle + span_angle:
+                if self.value_key == "current_size_mb":
+                    metric = f"Current size: {value:,.2f} MB"
+                else:
+                    formatted_value = f"{value:,.0f}" if value.is_integer() else f"{value:,.2f}"
+                    metric = f"Threads: {formatted_value}"
+                return f"{entry.get('pool_name', '')}\n{metric}\nShare: {value / total:.1%}"
+            start_angle += span_angle
+        return ""
+
+    def mouseMoveEvent(self, a0: QMouseEvent | None):
+        if a0 is not None:
+            self.setToolTip(self._tooltip_at(a0.position()))
+        super().mouseMoveEvent(a0)
+
+    def paintEvent(self, a0):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        values, total = self._values_and_total()
         if total <= 0:
             message = "No pool data" if self.loaded else "Gathering data..."
             painter.setPen(self.palette().color(self.foregroundRole()))
@@ -650,6 +686,7 @@ class ObjectStatisticsDialog(QDialog):
         top_temporary_storage_jobs=None,
         top_temporary_storage_jobs_error="",
         top_temporary_storage_jobs_loaded=None,
+        pool_data_loaded=None,
     ):
         super().__init__(parent)
         self.setWindowTitle(f"{server_name} - System Memory & ASP Storage")
@@ -691,7 +728,9 @@ class ObjectStatisticsDialog(QDialog):
         pool_charts_layout.addWidget(self.pool_size_chart, stretch=1)
         pool_charts_layout.addWidget(self.pool_threads_chart, stretch=1)
         layout.addLayout(pool_charts_layout)
-        self.temp_storage_title = QLabel("Top 50 Jobs by Temporary Storage")
+        self.temp_storage_title = QLabel(
+            "Top 20 Jobs by Temporary Storage (refreshes with live cards)"
+        )
         self.temp_storage_status_label = QLabel()
         self.temp_storage_table = QTableWidget()
         self.temp_storage_table.setColumnCount(5)
@@ -724,7 +763,15 @@ class ObjectStatisticsDialog(QDialog):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.table)
-        self.update_data(rows or [], error, loaded, updated_at, storage_pools or [], pool_threads or [])
+        self.update_data(
+            rows or [],
+            error,
+            loaded,
+            updated_at,
+            storage_pools or [],
+            pool_threads or [],
+            pool_data_loaded=pool_data_loaded,
+        )
         self.update_temporary_storage_jobs(
             top_temporary_storage_jobs or [],
             top_temporary_storage_jobs_error,
@@ -734,13 +781,15 @@ class ObjectStatisticsDialog(QDialog):
     def update_data(
         self, rows, error="", loaded=False, updated_at="", storage_pools=None,
         pool_threads=None, top_temporary_storage_jobs=None,
-        top_temporary_storage_jobs_error="",
+        top_temporary_storage_jobs_error="", pool_data_loaded=None,
     ):
         self.last_update_label.setText(
-            f"Updates every 3 hours | Last update: {updated_at or 'Not available'}"
+            f"Pool charts refresh with live cards | Object statistics update every 3 hours | "
+            f"Last update: {updated_at or 'Not available'}"
         )
-        self.pool_size_chart.set_data(storage_pools or [], loaded)
-        self.pool_threads_chart.set_data(pool_threads or [], loaded)
+        charts_loaded = loaded if pool_data_loaded is None else pool_data_loaded
+        self.pool_size_chart.set_data(storage_pools or [], charts_loaded)
+        self.pool_threads_chart.set_data(pool_threads or [], charts_loaded)
         if top_temporary_storage_jobs is not None or top_temporary_storage_jobs_error:
             self.update_temporary_storage_jobs(
                 top_temporary_storage_jobs or [],

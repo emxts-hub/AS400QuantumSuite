@@ -1,222 +1,102 @@
 # AS400 Quantum Suite
 
-AS400 Quantum Suite is a Windows desktop monitoring and operations dashboard for IBM i (AS/400) environments. It combines live IBM i telemetry, backup tracking, JSON history logging, and monthly reporting into a single PyQt-based application used by operators and engineers to monitor server health, key subsystem activity, and backup job performance.
+**AS400 Quantum Suite 5.5.0** is a Windows desktop monitoring and operations dashboard for IBM i (AS/400) environments. It connects to configured IBM i systems through DB2/ODBC and presents live LPAR status, capacity metrics, service checks, backup history, and monthly reports in a PyQt6 application.
 
-The current codebase is aligned to version 5.1.0 and includes a GUI-driven monitoring workflow, configuration persistence, and backup/audit reporting features built around DB2/ODBC queries and local JSON archives.
+## Features
 
-## Overview
+- **Live Monitor:** Per-server status cards for CPU, ASP, active jobs, subsystem health, web applications, and configured network services. Monitoring runs in background workers with per-server refresh and connection status.
+- **ASP alerts:** The configured ASP threshold is the critical level. A warning is raised 2% below it by default; warnings are silent and highlighted orange, while critical alerts are highlighted red and sound. SMTP notifications include the server name, IP, current ASP usage, and configured critical threshold.
+- **Server status alerts:** Server-down email notifications are delayed by three seconds and suppressed if the VPN disconnects or the server recovers during that delay.
+- **Logs & Analytics:** Browse persisted monitoring history and monthly CPU/ASP trends. Export monthly reports to Excel and generate a report for the previous month.
+- **Backup Management:** Review daily, weekly, monthly, and journal backup history in two panels by server and month, including duration, start/end times, and daily, weekly, and monthly averages.
+- **Settings & Credentials:** Configure IBM i connections, expected subsystems and ports, email/SMTP alerts, refresh preferences, and the logs folder. Validate credentials, send a test email, and back up or restore application settings.
+- **Startup checks:** Check the configured expiration date and compare the installed version with the published minimum supported version.
 
-This project provides a single control center for:
+## Screenshots
 
-- live IBM i / AS/400 health monitoring
-![alt text](image.png)
+![Live monitoring dashboard](image.png)
 
-- CPU, ASP, and active job tracking
-![alt text](image-3.png)
-![alt text](image-2.png)
-![alt text](image-4.png)
+![Server metrics and subsystem status](image-3.png)
 
-- subsystem, Web Apps and service validation
-![alt text](image-5.png)
-![alt text](image-7.png)
-![alt text](image-6.png)
+![Service and application checks](image-5.png)
 
-- daily and journal backup auditing
-![alt text](image-8.png)
+![Backup management](image-8.png)
 
-- monthly log retention and historical review
-![alt text](image-10.png)
-![alt text](image-9.png)
+![Monthly reporting](image-10.png)
 
-- SMTP alert configuration and test messaging
-![alt text](image-11.png)
-
-- application version checks and update enforcement
-![alt text](image-12.png)
-
-## What the application does
-
-The app connects to one or more IBM i hosts using DB2/ODBC and reads operational metrics and job data. It then surfaces the information through a desktop dashboard with navigation pages for monitoring, logs, reports, backup review, and settings.
-
-Key capabilities in the current implementation include:
-
-- LPAR and server status monitoring
-- CPU and ASP trend visualization
-- active job and temporary-storage analysis
-- object statistics and ASP capacity reporting
-- web app / service checks based on configured ports
-- subsystem validation against expected values
-- daily and journal backup job tracking
-- deduplicated JSON log persistence by month
-- monthly reporting and log browsing
-- configurable email alerts and credential validation
-- version expiration and minimum-version enforcement
-
-## Architecture
-
-The project is organized around a PyQt6 desktop app with background worker threads for DB2 calls and local persistence.
-
-Core areas of the codebase:
-
-- `src/main.py` — app bootstrap and startup checks
-- `src/config.py` — version metadata, config paths, log roots, and resource paths
-- `src/worker.py` — DB2 query workers, log writers, and backup collectors
-- `src/dialogs.py` — operational dialogs and alert panels
-- `src/ui/main_window.py` — main dashboard and navigation
-- `src/ui/backup_manage.py` — backup management interface
-- `src/ui/log_viewer.py` — log viewer UI
-- `src/ui/monthly_report.py` — monthly report generation and charts
-- `src/ui/setcreds.py` — credential and settings persistence
-- `src/version_worker.py` — version checking thread
-- `tests/` — regression and behavior tests for logging, settings, and dashboard behavior
+![Email alert settings](image-11.png)
 
 ## Requirements
 
-### Minimum
-
 - Windows 10 or later
-- Python 3.10+
-- PyQt6
-- pyodbc
-- IBM i Access ODBC driver or equivalent DB2/ODBC connectivity
-- network access to the target IBM i system
-- valid credentials for the monitored LPARs
+- Python 3.10 or later for running from source
+- IBM i Access ODBC driver (or compatible DB2 ODBC driver)
+- Network access and valid credentials for the monitored IBM i systems
+- SMTP server details if email alerts are required
+- A writable local, network, OneDrive, or SharePoint folder for monitoring logs
 
-### Optional but commonly required
+Python dependencies are listed in `requirements.txt`. Password storage uses the operating system keyring when available; an SMTP password can also be supplied using `SMTP_PASSWORD` or `APP_SMTP_PASSWORD`.
 
-- SMTP-capable mail relay for alerting
-- OneDrive / SharePoint / network writable log root for archival logs
-- VPN access when the IBM i system is not reachable directly
+## Run From Source
 
-## Setup
+Install dependencies from the repository root:
 
-1. Clone the repository.
-2. Install Python dependencies:
-
-```bash
-pip install -r requirements.txt
+```powershell
+python -m pip install -r requirements.txt
 ```
 
-3. Ensure the IBM i ODBC driver is installed and configured on the machine.
-4. Launch the app from the project root:
+Install and configure the IBM i ODBC driver, then start the application:
 
-```bash
+```powershell
 python src/main.py
 ```
 
-5. Configure server entries, credentials, monitored subsystems, and email settings through the app UI.
+Use **Settings & Credentials** to configure server hosts/databases, credentials, expected subsystems and ports, email settings, and the log storage folder. Start monitoring from **Live Monitor** after validating the required credentials and network access.
 
-## Configuration
+## Configuration And Data
 
-The app stores settings in a local config file under the current user application data directory, and supports a configurable logs root for monthly archival data.
+- Application settings are stored in the current user's application data directory under `AS400 Quantum Suite`.
+- The log root is configurable in the application. If the preferred archive location is unavailable, log writes can fall back to the application's local logs folder.
+- Monitoring snapshots are stored as daily JSON files and used by Logs & Analytics and monthly reports.
+- Cleanup retains the current and previous calendar months for reporting; older canonical daily logs are subject to the 30-day retention policy.
+- Keep settings backups and log archives in locations accessible to the operator account. Do not include credentials or private logs in public source-control commits.
 
-Important configuration elements include:
+## Build And Installer
 
-- server host and database values
-- expected subsystem names
-- expected ports and app names
-- email alert details and thresholds
-- log archive path
-- IBM i login credentials
+The repository includes a PyInstaller spec and an Inno Setup script. On Windows, install the dependencies, then build the application bundle:
 
-## Logging and reporting
-
-The monitoring layer stores historical operational snapshots in JSON files under the active logging root. The app supports:
-
-- daily log capture and deduplication
-- monthly archival grouping
-- historical browsing by month
-- report generation and export-friendly summaries
-
-A few important design details from the codebase:
-
-- log writes are serialized to avoid race conditions in multi-threaded monitoring
-- duplicate daily records are filtered by server + timestamp semantics
-- backup logs are separated by job type, including daily and journal categories
-- fallback directories are used when the preferred SharePoint/log root is unavailable
-
-## Security and version checks
-
-The application includes a hardened startup check and version enforcement pattern:
-
-- hard expiration date checks
-- minimum supported version enforcement
-- update check against the configured GitHub Pages metadata endpoint
-- secure handling of credentials and email secrets in settings storage
-
-## Running the project
-
-From the repository root:
-
-```bash
-python src/main.py
+```powershell
+pyinstaller AS400QuantumSuite.spec
 ```
 
-If packaging is needed for a Windows build, the repo also includes a PyInstaller spec file and installer script:
+The installer script `setup.iss` packages the generated `dist\AS400QuantumSuite` folder. Compile it with Inno Setup after the PyInstaller build.
 
-- `AS400QuantumSuite.spec`
-- `setup.iss`
+## Tests
 
-## Project structure
+Run the pytest suite from the repository root:
+
+```powershell
+python -m pytest -q
+```
+
+Tests cover alert escalation and messaging, monitoring/log behavior, settings persistence, reporting, and dashboard interactions.
+
+## Project Layout
 
 ```text
-Pure-SQL/
-├── AS400QuantumSuite.spec
-├── README.md
-├── requirements.txt
-├── setup.iss
-├── version.json
-├── build/
-├── build_scripts/
-├── Image & Sound/
-├── src/
-│   ├── config.py
-│   ├── data_store.py
-│   ├── dialogs.py
-│   ├── main.py
-│   ├── version_worker.py
-│   ├── worker.py
-│   └── ui/
-│       ├── backup_manage.py
-│       ├── log_viewer.py
-│       ├── main_window.py
-│       ├── monthly_report.py
-│       ├── setcreds.py
-│       ├── styles.py
-│       └── widgets.py
-├── tests/
-│   ├── test_hourly_log_recording.py
-│   ├── test_log_root_settings.py
-│   └── test_review_fixes.py
-└── src/logs/
+AS400QuantumSuite.spec   PyInstaller application bundle
+setup.iss                Windows installer definition
+version.json             Published version metadata
+src/main.py              Application startup
+src/config.py            Application metadata and paths
+src/worker.py            IBM i queries, monitoring, alerts, and log workers
+src/ui/                  Dashboard, logs, reports, backup, and settings UI
+src/dialogs.py           Dialogs and configuration screens
+src/version_worker.py    Remote version check
+Image & Sound/           App icons and alert sounds
+tests/                   Pytest regression tests
 ```
 
-## Testing
+## Version Information
 
-The repository includes pytest-based checks covering:
-
-- log root configuration behavior
-- persisted settings backup round-tripping
-- hourly log deduplication
-- dashboard navigation and control behavior
-- version and update validation rules
-
-Use:
-
-```bash
-pytest
-```
-
-## Important notes
-
-- Avoid trailing semicolons in DB2 SQL queries inside `src/worker.py`; they can trigger SQL errors under pyodbc.
-- The app is designed primarily for Windows environments and IBM i/ODBC access patterns.
-- If your environment uses OneDrive or SharePoint log archives, ensure the configured log root is writable and accessible.
-
-## Status
-
-This project is a functional desktop monitoring and auditing tool for IBM i systems, with ongoing operational tracking, reporting, and settings management implemented in the current codebase.
-
----
-
-This README was updated to reflect the code now present in the repository, including the actual version, the current GUI structure, and the monitoring/reporting features implemented in the app.
+The application version is **5.5.0**. Startup checks enforce the configured build expiration and compare the installed version with the published minimum version. Published version metadata is checked using the URL configured in `src/config.py`.

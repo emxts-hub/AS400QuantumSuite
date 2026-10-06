@@ -564,9 +564,34 @@ class MonthlyReportWidget(QWidget):
     def generate_previous_month_report(self, now=None, *_args):
         """Generate or regenerate the previous month report immediately for the current app state."""
         if isinstance(now, bool):
-            now = datetime.now()
-            previous_month = now.replace(day=1) - timedelta(days=1)
-            month_key = previous_month.strftime("%Y-%m")
+            selected_month = None
+            try:
+                if hasattr(self, "month_combo") and self.month_combo is not None and self.month_combo.count():
+                    selected_text = self.month_combo.currentText()
+                    if isinstance(selected_text, str) and selected_text.strip():
+                        selected_month = selected_text.strip()
+            except (AttributeError, RuntimeError):
+                selected_month = None
+
+            if selected_month:
+                month_key = selected_month
+                try:
+                    parsed = datetime.strptime(month_key, "%Y-%m")
+                except ValueError:
+                    parsed = datetime.now()
+                year = parsed.year
+                month = parsed.month
+                if month == 1:
+                    year -= 1
+                    month = 12
+                else:
+                    month -= 1
+                month_key = f"{year:04d}-{month:02d}"
+            else:
+                now = datetime.now()
+                previous_month = now.replace(day=1) - timedelta(days=1)
+                month_key = previous_month.strftime("%Y-%m")
+
             file_path = self._build_auto_report_path(month_key)
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             self._save_monthly_report_to_file(month_key, file_path, silent=True)
@@ -762,8 +787,17 @@ class MonthlyReportWidget(QWidget):
                         chart.x_axis.numFmt = "0"
                         chart.y_axis.numFmt = "0%"
                         chart.y_axis.scaling.min = 0.01
-                        chart.y_axis.scaling.max = 1
-                        chart.y_axis.majorUnit = 0.1
+                        plotted_values = [
+                            ws.cell(row=data_row, column=column).value
+                            for column in range(2, table_info["day_count"] + 2)
+                        ]
+                        highest_value = max(
+                            (value for value in plotted_values if isinstance(value, (int, float))),
+                            default=1.0,
+                        )
+                        axis_max = max(1.0, highest_value * 1.1)
+                        chart.y_axis.scaling.max = axis_max
+                        chart.y_axis.majorUnit = axis_max / 10.0
                         chart.y_axis.crosses = "min"
                         chart.x_axis.tickLblPos = "low"
                         chart.height = 8
