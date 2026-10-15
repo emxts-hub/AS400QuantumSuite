@@ -144,8 +144,8 @@ tests/                   Pytest regression tests
 
 ## Version Information
 
-The application version is **5.5.0**. Startup checks enforce the configured build expiration and compare the installed version with the published minimum version. Published version metadata is checked using the URL configured in `src/config.py`.
+The application version is **5.6.0**. Startup checks enforce the configured build expiration and compare the installed version with the published minimum version. Published version metadata is checked using the URL configured in `src/config.py`.
 
 ---
 
-{% include USER_GUIDE.md %}
+[📖 Read the User Guide](./USER_GUIDE)
