@@ -4,9 +4,10 @@ import json
 import uuid
 import time
 from datetime import datetime, timezone
+from system_logging import SYSTEM_LOGGER
 
 APP_NAME = "AS400 Quantum Suite"
-APP_VERSION = "5.5.0"
+APP_VERSION = "5.6.0"
 USER_PROFILE = os.environ.get("USERPROFILE") or os.path.expanduser("~")
 DEFAULT_ONEDRIVE_SHAREPOINT_PATH = os.path.join(
     USER_PROFILE,
@@ -359,8 +360,8 @@ def safe_json_append_and_save(file_path: str, new_entry: dict, max_retries: int 
                         current_data = []
             current_data.append(new_entry)
             return _atomic_write_json(fallback_path, current_data)
-        except Exception as fallback_err:
-            print(f"[safe_json_append_and_save] Fallback save failed for {fallback_path}: {fallback_err}")
+        except Exception:
+            SYSTEM_LOGGER.error("Fallback JSON log persistence failed")
             return False
 
     return False

@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QCursor, QFont
 from PyQt6.QtWidgets import (
     QComboBox,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -62,17 +63,37 @@ class BackupManagementWidget(QWidget):
         self.backup_average_labels = {}
         self.backup_weekly_average_labels = {}
         self.backup_monthly_average_labels = {}
+        self.backup_running_monthly_records = {}
         self.backup_server_buttons = []
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        title = QLabel("Backup Management")
+        header = QFrame(self)
+        header.setObjectName("pageHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(32, 14, 32, 14)
+        title = QLabel("Backup Management", header)
+        title.setObjectName("pageHeaderTitle")
         title.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
-        layout.addWidget(title)
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+        layout.addWidget(header)
+
+        divider = QFrame(self)
+        divider.setObjectName("pageHeaderDivider")
+        divider.setFrameShape(QFrame.Shape.HLine)
+        layout.addWidget(divider)
+
+        content = QWidget(self)
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(24, 16, 24, 24)
+        content_layout.setSpacing(8)
+        layout.addWidget(content, stretch=1)
         subtitle = QLabel("Selected systems - averages for the selected month")
         subtitle.setFont(QFont("Segoe UI", 10, QFont.Weight.Normal))
-        layout.addWidget(subtitle)
+        content_layout.addWidget(subtitle)
 
         # Control Row containing Server Buttons and Month Selector
         self.server_row = QHBoxLayout()
@@ -100,13 +121,22 @@ class BackupManagementWidget(QWidget):
         self.month_combo.currentIndexChanged.connect(self._on_month_changed)
         self.server_row.addWidget(self.month_combo)
 
-        layout.addLayout(self.server_row)
+        content_layout.addLayout(self.server_row)
 
         tables_layout = QHBoxLayout()
         tables_layout.setSpacing(16)
-        tables_layout.addWidget(self._create_backup_panel("Daily/Weekly/Monthly Backup", "daily"), stretch=1)
+        daily_monthly_layout = QVBoxLayout()
+        daily_monthly_layout.setSpacing(8)
+        daily_monthly_layout.addWidget(
+            self._create_backup_panel("Daily/Weekly Backup", "daily"),
+            stretch=1,
+        )
+        daily_monthly_layout.addWidget(
+            self._create_backup_panel("Monthly Backup", "monthly", compact=True)
+        )
+        tables_layout.addLayout(daily_monthly_layout, stretch=1)
         tables_layout.addWidget(self._create_backup_panel("Journal Backup", "journal"), stretch=1)
-        layout.addLayout(tables_layout, stretch=1)
+        content_layout.addLayout(tables_layout, stretch=1)
 
         self.hourly_timer = QTimer(self)
         self.hourly_timer.setInterval(60 * 60 * 1000)
@@ -160,13 +190,16 @@ class BackupManagementWidget(QWidget):
                 self._load_backup_json(self.backup_selected_server, backup_type)
             self.fetch_backup_data("monthly")
 
-    def _create_backup_panel(self, title_text, backup_type):
+    def _create_backup_panel(self, title_text, backup_type, compact=False):
         panel = QGroupBox(title_text)
         panel.setMinimumWidth(420)
-        panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        panel.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed if compact else QSizePolicy.Policy.Expanding,
+        )
         panel_layout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(10, 8, 10, 10)
-        panel_layout.setSpacing(8)
+        panel_layout.setSpacing(4 if compact else 8)
 
         table = QTableWidget(0, 5)
         table.setHorizontalHeaderLabels(["Job ID / Name", "Start Time", "End Time", "Duration", "Status"])
@@ -184,10 +217,19 @@ class BackupManagementWidget(QWidget):
             horizontal_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
             for column in range(1, 5):
                 horizontal_header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
-        table.setMinimumHeight(310)
-        table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        panel_layout.addWidget(table, stretch=1)
-        average_label = QLabel("Average: 00h 00m")
+        if compact:
+            table.setFixedHeight(76)
+            table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        else:
+            table.setMinimumHeight(310)
+            table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        panel_layout.addWidget(table, stretch=0 if compact else 1)
+        average_title = {
+            "daily": "Daily Average",
+            "journal": "Average",
+            "monthly": "Monthly Average",
+        }[backup_type]
+        average_label = QLabel(f"{average_title}: 00h 00m")
         average_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         average_label.setContentsMargins(6, 0, 0, 0)
         panel_layout.addWidget(average_label)
@@ -197,16 +239,12 @@ class BackupManagementWidget(QWidget):
             weekly_average_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
             weekly_average_label.setContentsMargins(6, 0, 0, 0)
             panel_layout.addWidget(weekly_average_label)
-            monthly_average_label = QLabel("Monthly Average: 00h 00m")
-            monthly_average_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-            monthly_average_label.setContentsMargins(6, 0, 0, 0)
-            panel_layout.addWidget(monthly_average_label)
         self.backup_tables[backup_type] = table
         self.backup_average_labels[backup_type] = average_label
         if weekly_average_label is not None:
             self.backup_weekly_average_labels[backup_type] = weekly_average_label
-        if backup_type == "daily":
-            self.backup_monthly_average_labels[backup_type] = monthly_average_label
+        if backup_type == "monthly":
+            self.backup_monthly_average_labels[backup_type] = average_label
         return panel
 
     def select_server(self, server_name):
@@ -269,61 +307,79 @@ class BackupManagementWidget(QWidget):
     def _load_backup_json(self, server_name, backup_type):
         records = []
         month_prefix = self._selected_month_prefix()
-        sources = (("daily", "daily"), ("monthly", "monthly")) if backup_type == "daily" else ((backup_type, backup_type),)
-        for source_type, category in sources:
-            path = self._backup_json_path(source_type, month_prefix)
-            try:
-                if os.path.exists(path):
-                    with open(path, "r", encoding="utf-8") as file:
-                        all_records = (json.load(file) or {}).get(server_name, [])
-                        records.extend(
-                            {**record, "_backup_category": category}
-                            for record in all_records
-                            if str(record.get("start_time", "")).startswith(month_prefix)
-                        )
-            except (OSError, ValueError):
-                pass
+        path = self._backup_json_path(backup_type, month_prefix)
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as file:
+                    all_records = (json.load(file) or {}).get(server_name, [])
+                    records.extend(
+                        record
+                        for record in all_records
+                        if str(record.get("start_time", "")).startswith(month_prefix)
+                    )
+        except (OSError, ValueError):
+            pass
+        if (
+            backup_type == "monthly"
+            and month_prefix == datetime.now().strftime("%Y-%m")
+        ):
+            running_monthly = self.backup_running_monthly_records.get(server_name)
+            if running_monthly is not None:
+                existing_starts = {str(record.get("start_time", "")) for record in records}
+                for record in running_monthly:
+                    if str(record.get("start_time", "")) not in existing_starts:
+                        records.append(record)
         records.sort(key=lambda record: str(record.get("start_time", "")), reverse=True)
+        if backup_type == "monthly":
+            records = records[:1]
         self._populate_backup_table(self.backup_tables[backup_type], records)
 
     def _populate_backup_table(self, table, records):
+        backup_type = next(
+            (kind for kind, backup_table in self.backup_tables.items() if backup_table is table),
+            None,
+        )
+        if backup_type == "monthly":
+            records = sorted(
+                records,
+                key=lambda record: str(record.get("start_time", "")),
+                reverse=True,
+            )[:1]
         table.setRowCount(len(records))
         for row_index, record in enumerate(records):
             start_time = record.get("start_time", "")
             end_time = record.get("end_time", "")
             job_name = record.get("job_name", "")
-            if record.get("_backup_category") == "monthly":
-                job_name = f"{job_name} (Monthly)"
+            backup_status = record.get("backup_status", "")
+            if not backup_status and start_time and not end_time:
+                backup_status = "RUNNING"
+            elif (
+                not backup_status
+                and backup_type == "monthly"
+                and self._backup_duration_seconds(start_time, end_time) is not None
+            ):
+                backup_status = (
+                    "COMPLETED WITH ERRORS"
+                    if record.get("has_completion_errors")
+                    else "COMPLETED"
+                )
             values = [
                 job_name,
                 start_time,
                 end_time,
                 self._backup_duration(start_time, end_time),
-                record.get("backup_status", ""),
+                backup_status,
             ]
             for column_index, value in enumerate(values):
                 table.setItem(row_index, column_index, QTableWidgetItem(str(value or "")))
-        backup_type = next(
-            (kind for kind, backup_table in self.backup_tables.items() if backup_table is table),
-            None,
-        )
         if backup_type is not None:
-            average_title = {
-                "daily": "Daily Average",
-                "journal": "Average",
-            }[backup_type]
-            daily_records = [record for record in records if record.get("_backup_category") != "monthly"]
-            monthly_records = [record for record in records if record.get("_backup_category") == "monthly"]
             self.backup_average_labels[backup_type].setText(
-                f"{average_title}: "
-                f"{self._average_backup_duration(self._weekday_records(daily_records)) if backup_type == 'daily' else self._average_backup_duration(records)}"
+                f"{'Daily Average' if backup_type == 'daily' else 'Monthly Average' if backup_type == 'monthly' else 'Average'}: "
+                f"{self._average_backup_duration(self._weekday_records(records) if backup_type == 'daily' else records)}"
             )
             if backup_type == "daily":
                 self.backup_weekly_average_labels[backup_type].setText(
-                    f"Weekly Average: {self._average_backup_duration(self._sunday_records(daily_records))}"
-                )
-                self.backup_monthly_average_labels[backup_type].setText(
-                    f"Monthly Average: {self._average_backup_duration(monthly_records)}"
+                    f"Weekly Average: {self._average_backup_duration(self._sunday_records(records))}"
                 )
 
     @staticmethod
@@ -451,6 +507,15 @@ class BackupManagementWidget(QWidget):
             self.server_row.insertWidget(i + 1, self.backup_server_buttons[i])
 
     def _handle_backup_data(self, backup_type, server_name, records):
+        if backup_type == "monthly":
+            self.backup_running_monthly_records[server_name] = [
+                record
+                for record in records
+                if isinstance(record, dict)
+                and record.get("start_time")
+                and not record.get("end_time")
+            ]
+
         records_by_month = {}
         for record in records:
             if not isinstance(record, dict):
@@ -490,7 +555,7 @@ class BackupManagementWidget(QWidget):
             self.month_combo.setCurrentIndex(selected_index)
         self.month_combo.blockSignals(False)
         if server_name == self.backup_selected_server:
-            self._load_backup_json(server_name, "daily" if backup_type == "monthly" else backup_type)
+            self._load_backup_json(server_name, backup_type)
 
     def _handle_backup_error(self, backup_type, server_name, message):
         current_month = datetime.now().strftime("%Y-%m")

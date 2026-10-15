@@ -2,37 +2,45 @@
 
 DARK_STYLESHEET = """
 QMainWindow, QTabWidget::pane {
-    background-color: #0d1117;
+    background-color: #171819;
     border: none;
 }
 QTabBar::tab {
-    background-color: #161b22;
-    color: #8b949e;
+    background-color: #202225;
+    color: #a4a8ae;
     padding: 8px 16px;
-    border: 1px solid #30363d;
+    border: 1px solid #34383d;
     border-bottom: none;
     border-top-left-radius: 6px;
     border-top-right-radius: 6px;
     font-weight: 600;
 }
 QTabBar::tab:selected {
-    background-color: #0d1117;
-    color: #58a6ff;
-    border-color: #30363d;
-    border-bottom: 2px solid #58a6ff;
+    background-color: #171819;
+    color: #79aaff;
+    border-color: #34383d;
+    border-bottom: 2px solid #79aaff;
 }
 QWidget {
-    background-color: #0d1117;
-    color: #c9d1d9;
+    background-color: #171819;
+    color: #e1e3e6;
     font-family: 'Segoe UI', 'SF Pro Display', -apple-system, sans-serif;
 }
+QDialog, QMessageBox, QFileDialog {
+    background-color: #171819;
+    color: #e1e3e6;
+}
+QMessageBox QLabel, QFileDialog QLabel {
+    background-color: transparent;
+    color: #e1e3e6;
+}
 QGroupBox {
-    border: 1px solid #30363d;
+    border: 1px solid #34383d;
     border-radius: 8px;
     margin-top: 10px;
     font-weight: bold;
     font-size: 11px;
-    color: #8b949e;
+    color: #a4a8ae;
     padding-top: 6px;
 }
 QGroupBox::title {
@@ -42,44 +50,44 @@ QGroupBox::title {
     padding: 0 4px;
 }
 QLineEdit, QComboBox {
-    background-color: #161b22;
-    border: 1px solid #30363d;
+    background-color: #202225;
+    border: 1px solid #34383d;
     border-radius: 6px;
     padding: 6px 10px;
-    color: #ffffff;
+    color: #f3f4f6;
     font-size: 12px;
 }
 QComboBox QAbstractItemView {
-    background-color: #161b22;
-    color: #ffffff;
-    selection-background-color: #1f6feb;
-    border: 1px solid #30363d;
+    background-color: #202225;
+    color: #f3f4f6;
+    selection-background-color: #34445c;
+    border: 1px solid #34383d;
 }
 QLineEdit:focus, QComboBox:focus {
-    border: 1px solid #58a6ff;
+    border: 1px solid #79aaff;
 }
 QPushButton {
-    background-color: #21262d;
-    color: #c9d1d9;
-    border: 1px solid #30363d;
+    background-color: #2a2c2f;
+    color: #e1e3e6;
+    border: 1px solid #3a3d41;
     border-radius: 6px;
     padding: 6px 12px;
     font-weight: 600;
     font-size: 12px;
 }
 QPushButton:hover {
-    background-color: #30363d;
-    border-color: #8b949e;
+    background-color: #36393d;
+    border-color: #62676e;
 }
 QPushButton:disabled {
-    background-color: #161b22;
-    color: #484f58;
-    border-color: #21262d;
+    background-color: #202225;
+    color: #737980;
+    border-color: #2a2c2f;
 }
 QTableWidget {
-    background-color: #161b22;
-    gridline-color: #21262d;
-    border: 1px solid #30363d;
+    background-color: #202225;
+    gridline-color: #2a2c2f;
+    border: 1px solid #34383d;
     border-radius: 8px;
     outline: none;
 }
@@ -88,17 +96,17 @@ QTableWidget::item {
     padding: 4px;
 }
 QTableWidget::item:selected {
-    background-color: transparent;
-    color: #ffffff;
+    background-color: #303943;
+    color: #f3f4f6;
 }
 QHeaderView::section {
-    background-color: #0d1117;
-    color: #8b949e;
+    background-color: #171819;
+    color: #a4a8ae;
     padding: 6px 10px;
     font-weight: 600;
     font-size: 12px;
     border: none;
-    border-bottom: 2px solid #30363d;
+    border-bottom: 2px solid #34383d;
 }
 """
 
@@ -127,6 +135,14 @@ QWidget {
     background-color: #f6f8fa;
     color: #1f2328;
     font-family: 'Segoe UI', 'SF Pro Display', -apple-system, sans-serif;
+}
+QDialog, QMessageBox, QFileDialog {
+    background-color: #f6f8fa;
+    color: #1f2328;
+}
+QMessageBox QLabel, QFileDialog QLabel {
+    background-color: transparent;
+    color: #1f2328;
 }
 QGroupBox {
     border: 1px solid #d0d7de;

@@ -387,32 +387,66 @@ class ServiceBadge(QLabel):
         """
         self.setToolTip(tooltip_html)
 
-        if self.is_up:
+        app = QApplication.instance()
+        is_dark_theme = (
+            bool(app.property("is_dark_theme"))
+            if app and app.property("is_dark_theme") is not None
+            else True
+        )
+        if self.is_up and is_dark_theme:
             self.setStyleSheet("""
                 QLabel {
-                    background-color: #0d2818;
-                    color: #3fb950;
-                    border: 1px solid #2ea043;
+                    background-color: #244a38;
+                    color: #6ec99e;
+                    border: 1px solid #347c57;
                     border-radius: 4px;
                     padding: 1px 2px;
                 }
                 QLabel:hover {
-                    background-color: #123d24;
-                    border-color: #3fb950;
+                    background-color: #2b5a43;
+                    border-color: #50a876;
+                }
+            """)
+        elif self.is_up:
+            self.setStyleSheet("""
+                QLabel {
+                    background-color: #dcfce7;
+                    color: #166534;
+                    border: 1px solid #86efac;
+                    border-radius: 4px;
+                    padding: 1px 2px;
+                }
+                QLabel:hover {
+                    background-color: #bbf7d0;
+                    border-color: #4ade80;
+                }
+            """)
+        elif is_dark_theme:
+            self.setStyleSheet("""
+                QLabel {
+                    background-color: #49282a;
+                    color: #ff8585;
+                    border: 1px solid #8a4144;
+                    border-radius: 4px;
+                    padding: 1px 2px;
+                }
+                QLabel:hover {
+                    background-color: #5c3033;
+                    border-color: #bd5a5e;
                 }
             """)
         else:
             self.setStyleSheet("""
                 QLabel {
-                    background-color: #361718;
-                    color: #f85149;
-                    border: 1px solid #da3633;
+                    background-color: #ffebe9;
+                    color: #cf222e;
+                    border: 1px solid #ff8182;
                     border-radius: 4px;
                     padding: 1px 2px;
                 }
                 QLabel:hover {
-                    background-color: #4d1f21;
-                    border-color: #f85149;
+                    background-color: #ffcecb;
+                    border-color: #cf222e;
                 }
             """)
 
@@ -436,7 +470,7 @@ class StatusBadgesWidget(QWidget):
         layout.setHorizontalSpacing(4)
         layout.setVerticalSpacing(4)
 
-        cols = 5
+        cols = 6
         for idx, port in enumerate(ports_data):
             row = idx // cols
             col = idx % cols
@@ -444,8 +478,6 @@ class StatusBadgesWidget(QWidget):
             badge = ServiceBadge(port, parent=None)
             layout.addWidget(badge, row, col)
             
-        for c in range(cols):
-            layout.setColumnStretch(c, 1)
 
 
 class CenteredCellWidget(QWidget):

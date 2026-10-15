@@ -1,7 +1,0 @@
-{
-  "tests/test_review_fixes.py::test_web_app_click_filters_to_matching_active_jobs": true,
-  "tests/test_review_fixes.py::test_web_app_jobs_search_filters_job_rows_and_keeps_app_port": true,
-  "tests/test_review_fixes.py::test_web_app_jobs_are_not_queried_until_port_is_listening": true,
-  "tests/test_hourly_log_recording.py::test_maybe_send_asp_alert_uses_configured_threshold_not_hardcoded_90": true,
-  "tests/test_review_fixes.py::test_asp_warning_threshold_tracks_2_percent_below_configured_threshold": true
-}

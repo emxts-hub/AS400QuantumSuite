@@ -10,7 +10,8 @@ from PyQt6.QtCore import QTimer
 
 from config import get_resource_path, APP_VERSION, is_build_expired, parse_version
 from dialogs import AppExpirationDialog
-from ui.styles import LIGHT_STYLESHEET
+from system_logging import configure_system_logging
+from ui.styles import DARK_STYLESHEET
 import ui.main_window
 from version_worker import VersionCheckWorker
 
@@ -39,6 +40,8 @@ def log_exception(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
+    logger, _ = configure_system_logging()
+    logger.error("Unhandled application exception")
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write("\n--- UNHANDLED EXCEPTION ---\n")
         traceback.print_exception(exc_type, exc_value, exc_traceback, file=f)
@@ -53,8 +56,10 @@ def main():
     try:
         # 1. Initialize QApplication FIRST
         app = QApplication(sys.argv)
-        app.setProperty("is_dark_theme", False)
-        app.setStyleSheet(LIGHT_STYLESHEET)
+        logger, _ = configure_system_logging()
+        logger.info("Application startup")
+        app.setProperty("is_dark_theme", True)
+        app.setStyleSheet(DARK_STYLESHEET)
 
         app_icon = QIcon(resource_path("logo.png"))
         app.setWindowIcon(app_icon)
@@ -103,6 +108,8 @@ def main():
         sys.exit(app.exec())
 
     except Exception as e:
+        logger, _ = configure_system_logging()
+        logger.error("Fatal startup error")
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(f"\nFatal startup crash: {str(e)}\n")
             traceback.print_exc(file=f)

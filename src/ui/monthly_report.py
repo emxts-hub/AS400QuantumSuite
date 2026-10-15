@@ -10,10 +10,10 @@ from config import get_all_logs_dirs, get_monthly_logs_dir_for
 from PyQt6.QtCore import Qt, QPointF, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF, QCursor
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QFileDialog,
-    QCheckBox
+    QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
+    QPushButton, QCheckBox
 )
-from dialogs import show_critical_dialog, show_information_dialog
+from dialogs import get_save_file_name, show_critical_dialog, show_information_dialog
 
 
 class LoadingOverlay(QWidget):
@@ -190,10 +190,10 @@ class MonthlyReportWidget(QWidget):
             painter = QPainter(self)
             try:
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                background = "#161b22" if self.is_dark_theme else "#f8fafc"
-                grid = "#30363d" if self.is_dark_theme else "#cbd5e1"
-                muted = "#8b949e" if self.is_dark_theme else "#6b7280"
-                legend = "#c9d1d9" if self.is_dark_theme else "#334155"
+                background = "#171819" if self.is_dark_theme else "#f6f8fa"
+                grid = "#34383d" if self.is_dark_theme else "#d0d7de"
+                muted = "#a4a8ae" if self.is_dark_theme else "#57606a"
+                legend = "#e1e3e6" if self.is_dark_theme else "#1f2328"
                 painter.fillRect(self.rect(), QColor(background))
 
                 rect = self.rect().adjusted(10, 12, -10, -10)
@@ -230,6 +230,16 @@ class MonthlyReportWidget(QWidget):
                         y = bottom - ((value - self.min_value) / max(1e-6, self.max_value - self.min_value)) * (bottom - top)
                         points.append(QPointF(x, y))
                     color = QColor(self.base_colors[server_index % len(self.base_colors)])
+                    if self.metric_name == "CPU" and server_index == 0 and len(points) > 1:
+                        fill_color = QColor(color)
+                        fill_color.setAlpha(34 if self.is_dark_theme else 22)
+                        area = QPolygonF(points)
+                        area.append(QPointF(points[-1].x(), bottom))
+                        area.append(QPointF(points[0].x(), bottom))
+                        painter.setPen(Qt.PenStyle.NoPen)
+                        painter.setBrush(fill_color)
+                        painter.drawPolygon(area)
+                        painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.setPen(QPen(color, 2.2))
                     if len(points) == 1:
                         painter.setBrush(color)
@@ -285,18 +295,21 @@ class MonthlyReportWidget(QWidget):
         def __init__(self, title, value, subtitle, parent=None):
             super().__init__(parent)
             self.setObjectName("summaryCard")
-            self.setFixedHeight(72)
+            self.setFixedHeight(68)
             self.title = QLabel(title)
             self.title.setFont(QFont("Segoe UI", 9))
             self.title.setStyleSheet("color: #6b7280; background: transparent; border: none;")
+            self.title.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.value = QLabel(value)
-            self.value.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+            self.value.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
             self.value.setStyleSheet("color: #1f2937; background: transparent; border: none;")
+            self.value.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.subtitle = QLabel(subtitle)
             self.subtitle.setFont(QFont("Segoe UI", 8))
             self.subtitle.setStyleSheet("color: #6b7280; background: transparent; border: none;")
+            self.subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout = QVBoxLayout(self)
-            layout.setContentsMargins(12, 10, 12, 10)
+            layout.setContentsMargins(8, 4, 8, 4)
             layout.setSpacing(2)
             layout.addWidget(self.title)
             layout.addWidget(self.value)
@@ -304,9 +317,9 @@ class MonthlyReportWidget(QWidget):
 
         def set_theme(self, is_dark_theme):
             if is_dark_theme:
-                text_color = "#f0f6fc"
-                muted_color = "#8b949e"
-                self.setStyleSheet("QWidget#summaryCard { background-color: #161b22; border: 1px solid #30363d; border-radius: 8px; }")
+                text_color = "#e1e3e6"
+                muted_color = "#a4a8ae"
+                self.setStyleSheet("QWidget#summaryCard { background-color: #202225; border: 1px solid #34383d; border-radius: 8px; }")
             else:
                 text_color = "#1f2328"
                 muted_color = "#57606a"
@@ -318,6 +331,7 @@ class MonthlyReportWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.is_dark_theme = True
+        self.setObjectName("monthlyReportWidget")
         self.log_data_store = {}
         self.parent_log_viewer = None
         self.source_mode = "local"
@@ -337,8 +351,9 @@ class MonthlyReportWidget(QWidget):
         self._pending_generated_month = None
 
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(16, 16, 16, 16)
-        self.main_layout.setSpacing(12)
+        self.main_layout.setContentsMargins(10, 6, 10, 6)
+        self.main_layout.setSpacing(4)
+        self.report_layout = self.main_layout
 
         header = QHBoxLayout()
         self.title_label = QLabel("IBM i Monthly ASP/CPU Report")
@@ -363,33 +378,34 @@ class MonthlyReportWidget(QWidget):
         self.btn_generate_previous_month.hide()
         header.addWidget(self.btn_generate_previous_month)
 
-        self.main_layout.addLayout(header)
+        self.report_layout.addLayout(header)
 
         self.sync_status_label = QLabel("Source: Local persisted data")
         self.sync_status_label.setFont(self._make_font("Segoe UI", 9, QFont.Weight.Normal))
         self.sync_status_label.setStyleSheet("color: #8b949e;")
-        self.main_layout.addWidget(self.sync_status_label)
+        self.report_layout.addWidget(self.sync_status_label)
 
         self.summary_label = QLabel("Averages are calculated from the 1st to the last day of the selected month.")
         self.summary_label.setFont(self._make_font("Segoe UI", 9, QFont.Weight.Normal))
         self.summary_label.setStyleSheet("color: #8b949e;")
-        self.main_layout.addWidget(self.summary_label)
+        self.report_layout.addWidget(self.summary_label)
 
-        self.system_filter_label = QLabel("Systems:")
+        self.system_filter_label = QLabel("SYSTEMS")
         self.system_filter_label.setFont(self._make_font("Segoe UI", 9, QFont.Weight.Bold))
         self.system_filter_label.setStyleSheet("color: #8b949e;")
-        self.main_layout.addWidget(self.system_filter_label)
+        self.report_layout.addWidget(self.system_filter_label)
 
-        self.system_filter_widget = QWidget()
+        self.system_filter_widget = QFrame()
+        self.system_filter_widget.setObjectName("reportSystemsFilter")
         self.system_filter_layout = QHBoxLayout(self.system_filter_widget)
-        self.system_filter_layout.setContentsMargins(0, 0, 0, 0)
-        self.system_filter_layout.setSpacing(8)
-        self.main_layout.addWidget(self.system_filter_widget)
+        self.system_filter_layout.setContentsMargins(8, 3, 8, 3)
+        self.system_filter_layout.setSpacing(6)
+        self.report_layout.addWidget(self.system_filter_widget)
 
         self.cpu_panel = self._build_metric_section("CPU")
         self.asp_panel = self._build_metric_section("ASP")
-        self.main_layout.addWidget(self.cpu_panel)
-        self.main_layout.addWidget(self.asp_panel)
+        self.report_layout.addWidget(self.cpu_panel)
+        self.report_layout.addWidget(self.asp_panel)
 
         self.loading_overlay = LoadingOverlay(self)
         self.loading_overlay.hide()
@@ -1029,7 +1045,7 @@ class MonthlyReportWidget(QWidget):
         month_key = self.month_combo.currentText() or datetime.now().strftime("%Y-%m")
         default_filename = f"IBM_i_Monthly_Report_{month_key}.xlsx"
 
-        file_path, _ = QFileDialog.getSaveFileName(
+        file_path, _ = get_save_file_name(
             self,
             "Export Monthly Report",
             default_filename,
@@ -1066,21 +1082,25 @@ class MonthlyReportWidget(QWidget):
 
     def _build_metric_section(self, metric_name):
         section = QWidget()
+        section.setObjectName("monthlyMetricSection")
         section_layout = QHBoxLayout(section)
         section_layout.setContentsMargins(0, 0, 0, 0)
-        section_layout.setSpacing(14)
+        section_layout.setSpacing(0)
 
         left_panel = QWidget()
-        left_panel.setMinimumHeight(260)
-        left_panel.setStyleSheet("background-color: #f8fafc; border: 1px solid #d0d7de; border-radius: 10px;")
+        left_panel.setObjectName("monthlyMetricPanel")
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(10, 10, 10, 8)
-        left_layout.setSpacing(6)
+        left_layout.setContentsMargins(10, 6, 10, 6)
+        left_layout.setSpacing(3)
 
         top_row = QHBoxLayout()
+        metric_dot = QLabel("●")
+        metric_dot.setFont(self._make_font("Segoe UI", 9, QFont.Weight.Bold))
+        metric_dot.setObjectName("metricAccent")
+        top_row.addWidget(metric_dot)
         metric_label = QLabel(f"{metric_name} Usage")
         metric_label.setFont(self._make_font("Segoe UI", 11, QFont.Weight.Bold))
-        metric_label.setStyleSheet("color: #1f2937;")
+        metric_label.setStyleSheet("color: #e1e3e6; background: transparent;")
         top_row.addWidget(metric_label)
         top_row.addStretch()
 
@@ -1090,30 +1110,11 @@ class MonthlyReportWidget(QWidget):
         button_layout.setSpacing(3)
         for label in ["Day", "Week", "Month"]:
             btn = QPushButton(label)
-            btn.setFixedHeight(24)
+            btn.setFixedHeight(21)
             btn.setCheckable(True)
             btn.setAutoExclusive(True)
             if label == "Day":
                 btn.setChecked(True)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: transparent;
-                    color: #8b949e;
-                    border: 1px solid #30363d;
-                    border-radius: 10px;
-                    padding: 2px 9px;
-                }
-                QPushButton:hover {
-                    background-color: #21262d;
-                    color: #f0f6fc;
-                }
-                QPushButton:checked {
-                    background-color: #1f6feb;
-                    color: #ffffff;
-                    border: 1px solid #388bfd;
-                    font-weight: bold;
-                }
-            """)
             self._mode_buttons.append(btn)
             btn.clicked.connect(lambda _, key=f"{metric_name}:{label}": self._on_toggle_change(key))
             button_layout.addWidget(btn)
@@ -1125,20 +1126,20 @@ class MonthlyReportWidget(QWidget):
         section_layout.addWidget(left_panel, stretch=3)
 
         right_panel = QWidget()
+        right_panel.setObjectName("monthlyRankingPanel")
         right_panel.setMinimumWidth(230)
-        right_panel.setStyleSheet("background-color: transparent;")
         right_panel_layout = QVBoxLayout(right_panel)
-        right_panel_layout.setContentsMargins(0, 0, 0, 0)
-        right_panel_layout.setSpacing(8)
+        right_panel_layout.setContentsMargins(8, 5, 8, 5)
+        right_panel_layout.setSpacing(3)
 
         card_container = QWidget()
         card_layout = QVBoxLayout(card_container)
         card_layout.setContentsMargins(0, 0, 0, 0)
-        card_layout.setSpacing(8)
+        card_layout.setSpacing(3)
 
         self._summary_cards = getattr(self, '_summary_cards', {})
         self._summary_cards[metric_name] = {
-            "average": self.SummaryCard("Month Avg", "0.00%", "0 days trend", card_container),
+            "average": self.SummaryCard("MONTH AVG", "0.00%", "0 servers trend", card_container),
             "servers": QWidget(),
             "chart": chart,
         }
@@ -1149,7 +1150,7 @@ class MonthlyReportWidget(QWidget):
         self._summary_cards[metric_name]["servers"] = QWidget()
         server_layout = QVBoxLayout()
         server_layout.setContentsMargins(0, 0, 0, 0)
-        server_layout.setSpacing(6)
+        server_layout.setSpacing(1)
         self._replace_layout(
             self._summary_cards[metric_name]["servers"],
             server_layout,
@@ -1161,6 +1162,9 @@ class MonthlyReportWidget(QWidget):
 
         setattr(self, f"{metric_name.lower()}_chart", chart)
         setattr(self, f"{metric_name.lower()}_panel", left_panel)
+        setattr(self, f"{metric_name.lower()}_metric_panel", left_panel)
+        setattr(self, f"{metric_name.lower()}_ranking_panel", right_panel)
+        setattr(self, f"{metric_name.lower()}_metric_dot", metric_dot)
         setattr(self, f"{metric_name.lower()}_label", metric_label)
         setattr(self, f"{metric_name.lower()}_summary_card", self._summary_cards[metric_name]["average"])
         return section
@@ -1224,7 +1228,12 @@ class MonthlyReportWidget(QWidget):
 
         for server in servers:
             checkbox = QCheckBox(server)
+            checkbox.setObjectName("reportSystemChip")
             checkbox.setChecked(server in self._selected_servers)
+            checkbox.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            checkbox.setToolTip(
+                "Included in report" if checkbox.isChecked() else "Excluded from report"
+            )
             checkbox.stateChanged.connect(self._on_system_filter_changed)
             self._system_checks[server] = checkbox
             self.system_filter_layout.addWidget(checkbox)
@@ -1331,24 +1340,131 @@ class MonthlyReportWidget(QWidget):
 
     def set_theme(self, is_dark_theme):
         self.is_dark_theme = is_dark_theme
-        bg = "#0d1117" if is_dark_theme else "#f6f8fa"
-        panel = "#161b22" if is_dark_theme else "#ffffff"
-        text = "#c9d1d9" if is_dark_theme else "#1f2328"
-        border = "#30363d" if is_dark_theme else "#d0d7de"
-        self.setStyleSheet(f"QWidget {{ background-color: {bg}; color: {text}; }} QLabel {{ color: {text}; }} QComboBox {{ background-color: {panel}; color: {text}; border: 1px solid {border}; padding: 4px 8px; }} QPushButton {{ background-color: {panel}; color: {text}; border: 1px solid {border}; border-radius: 4px; }}")
-        
-        btn_style = "background-color: #1f6feb; color: #ffffff; border: 1px solid #388bfd; font-weight: bold; padding: 4px 10px;"
+        bg = "#171819" if is_dark_theme else "#f6f8fa"
+        panel = "#202225" if is_dark_theme else "#ffffff"
+        text = "#e1e3e6" if is_dark_theme else "#1f2328"
+        muted = "#a4a8ae" if is_dark_theme else "#57606a"
+        border = "#34383d" if is_dark_theme else "#d0d7de"
+        accent = "#79aaff" if is_dark_theme else "#0969da"
+        hover = "#2a2c2f" if is_dark_theme else "#eaeef2"
+        self.setStyleSheet(f"""
+            QWidget#monthlyReportWidget {{
+                background-color: {bg};
+                color: {text};
+            }}
+            QWidget#monthlyReportWidget {{
+                background-color: {bg};
+                border: none;
+            }}
+            QFrame#reportSystemsFilter {{
+                background-color: {panel};
+                border: 1px solid {border};
+                border-radius: 8px;
+            }}
+            QCheckBox#reportSystemChip {{
+                background-color: {hover};
+                color: {muted};
+                border: 1px solid {border};
+                border-radius: 14px;
+                padding: 5px 10px;
+                spacing: 6px;
+                font-size: 9pt;
+            }}
+            QCheckBox#reportSystemChip:hover {{
+                border-color: {accent};
+                color: {text};
+            }}
+            QCheckBox#reportSystemChip:checked {{
+                background-color: {'#26364c' if is_dark_theme else '#ddf4ff'};
+                border-color: {accent};
+                color: {accent};
+            }}
+            QCheckBox#reportSystemChip::indicator {{
+                width: 13px;
+                height: 13px;
+                border: 1px solid {muted};
+                border-radius: 7px;
+                background-color: transparent;
+            }}
+            QCheckBox#reportSystemChip::indicator:checked {{
+                background-color: {accent};
+                border-color: {accent};
+            }}
+            QWidget#monthlyMetricSection {{
+                background-color: {panel};
+                border: 1px solid {border};
+                border-radius: 9px;
+            }}
+            QWidget#monthlyMetricPanel {{
+                background-color: {panel};
+                border: none;
+            }}
+            QWidget#monthlyRankingPanel {{
+                background-color: {bg};
+                border: none;
+                border-left: 1px solid {border};
+            }}
+            QComboBox {{
+                background-color: {panel};
+                color: {text};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 6px 10px;
+                min-height: 22px;
+            }}
+            QComboBox:hover {{
+                border-color: {accent};
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {panel};
+                color: {text};
+                selection-background-color: {hover};
+                border: 1px solid {border};
+            }}
+            QCheckBox {{
+                color: {muted};
+                spacing: 6px;
+                padding: 3px 4px;
+            }}
+            QCheckBox:hover {{
+                color: {text};
+            }}
+        """)
+
+        button_hover = "#456be0" if is_dark_theme else "#0550ae"
+        btn_style = f"""
+            QPushButton {{
+                background-color: {accent};
+                color: #ffffff;
+                border: 1px solid {accent};
+                border-radius: 6px;
+                font-weight: 600;
+                padding: 6px 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {button_hover};
+                border-color: {button_hover};
+            }}
+            QPushButton:disabled {{
+                background-color: {panel};
+                color: {muted};
+                border-color: {border};
+            }}
+        """
         if hasattr(self, "btn_export"):
             self.btn_export.setStyleSheet(btn_style)
         if hasattr(self, "btn_generate_previous_month"):
             self.btn_generate_previous_month.setStyleSheet(btn_style)
 
-        self.title_label.setStyleSheet(f"color: {'#ffffff' if is_dark_theme else '#1f2328'};")
-        self.sync_status_label.setStyleSheet(f"color: {'#8b949e' if is_dark_theme else '#57606a'};")
-        self.summary_label.setStyleSheet(f"color: {'#8b949e' if is_dark_theme else '#57606a'};")
-        button_text = "#8b949e" if is_dark_theme else "#57606a"
-        button_hover = "#21262d" if is_dark_theme else "#eaeef2"
-        button_checked = "#1f6feb"
+        self.title_label.setStyleSheet(f"color: {text}; background: transparent;")
+        self.sync_status_label.setStyleSheet(f"color: {muted}; background: transparent;")
+        self.summary_label.setStyleSheet(f"color: {muted}; background: transparent;")
+        self.system_filter_label.setStyleSheet(
+            f"color: {text}; background: transparent; font-weight: 600;"
+        )
+        button_text = muted
+        button_hover = hover
+        button_checked = accent
         for button in self._mode_buttons:
             button.setStyleSheet(
                 f"""
@@ -1356,8 +1472,8 @@ class MonthlyReportWidget(QWidget):
                     background-color: transparent;
                     color: {button_text};
                     border: 1px solid {border};
-                    border-radius: 10px;
-                    padding: 2px 9px;
+                    border-radius: 6px;
+                    padding: 4px 10px;
                 }}
                 QPushButton:hover {{
                     background-color: {button_hover};
@@ -1366,27 +1482,48 @@ class MonthlyReportWidget(QWidget):
                 QPushButton:checked {{
                     background-color: {button_checked};
                     color: #ffffff;
-                    border: 1px solid #388bfd;
+                    border: 1px solid {accent};
                     font-weight: bold;
                 }}
                 """
             )
         for metric_name in ("CPU", "ASP"):
             chart = getattr(self, f"{metric_name.lower()}_chart", None)
-            panel_widget = getattr(self, f"{metric_name.lower()}_panel", None)
+            panel_widget = getattr(self, f"{metric_name.lower()}_metric_panel", None)
             label = getattr(self, f"{metric_name.lower()}_label", None)
             if chart is not None:
                 chart.set_theme(is_dark_theme)
             if panel_widget is not None:
                 panel_widget.setStyleSheet(
-                    f"background-color: {panel}; border: 1px solid {border}; border-radius: 10px;"
+                    f"QWidget#monthlyMetricPanel {{ background-color: {panel}; border: none; }}"
                 )
             if label is not None:
                 label.setStyleSheet(f"color: {text};")
+            ranking_panel = getattr(
+                self, f"{metric_name.lower()}_ranking_panel", None
+            )
+            if ranking_panel is not None:
+                ranking_panel.setStyleSheet(
+                    f"QWidget#monthlyRankingPanel {{ background-color: {bg}; border: none; border-left: 1px solid {border}; }}"
+                )
+            metric_dot = getattr(self, f"{metric_name.lower()}_metric_dot", None)
+            if metric_dot is not None:
+                metric_accent = "#79aaff" if metric_name == "CPU" else "#f0883e"
+                if not is_dark_theme:
+                    metric_accent = "#0969da" if metric_name == "CPU" else "#bf8700"
+                metric_dot.setStyleSheet(
+                    f"color: {metric_accent}; background: transparent;"
+                )
         for metric_name in ("CPU", "ASP"):
             section = getattr(self, f"{metric_name.lower()}_summary_card", None)
             if section is not None:
                 section.set_theme(is_dark_theme)
+                metric_accent = "#79aaff" if metric_name == "CPU" else "#f0883e"
+                if not is_dark_theme:
+                    metric_accent = "#0969da" if metric_name == "CPU" else "#bf8700"
+                section.value.setStyleSheet(
+                    f"color: {metric_accent}; background: transparent; border: none;"
+                )
 
         if hasattr(self, "loading_overlay"):
             self.loading_overlay.set_theme(is_dark_theme)
@@ -1494,27 +1631,37 @@ class MonthlyReportWidget(QWidget):
 
         ranking = sorted(rows, key=lambda row: row.get("month_avg", 0.0), reverse=True)
         for index, row in enumerate(ranking):
+            color = chart_widget.base_colors[index % len(chart_widget.base_colors)]
+            rank = QLabel(f"#{index + 1}")
+            rank.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            rank.setFixedSize(24, 18)
+            rank.setStyleSheet(
+                f"color: {color}; background-color: {'#292d33' if self.is_dark_theme else '#f1f3f5'}; "
+                "border-radius: 4px; font-size: 8pt; font-weight: 600;"
+            )
             label = QLabel(f"{row.get('server', 'Unknown')}")
             label.setFont(self._make_font("Segoe UI", 8))
             label.setStyleSheet(
-                f"color: {'#c9d1d9' if self.is_dark_theme else '#475569'}; background: transparent;"
+                f"color: {'#a4a8ae' if self.is_dark_theme else '#57606a'}; background: transparent;"
             )
+            label.setMinimumWidth(0)
+            label.setToolTip(str(row.get("server", "Unknown")))
             value = QLabel(f"{row.get('month_avg', 0.0):.2f}%")
             value.setFont(self._make_font("Segoe UI", 8, QFont.Weight.Bold))
             value.setStyleSheet(
-                f"color: {'#f0f6fc' if self.is_dark_theme else '#1f2937'}; background: transparent;"
+                f"color: {'#e1e3e6' if self.is_dark_theme else '#1f2328'}; background: transparent;"
             )
             row_widget = QWidget()
-            row_widget.setFixedHeight(26)
+            row_widget.setFixedHeight(19)
             row_widget.setStyleSheet("background: transparent; border: none;")
             row_layout = QHBoxLayout(row_widget)
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(8)
             dot = QLabel("●")
-            color = chart_widget.base_colors[index % len(chart_widget.base_colors)]
             dot.setStyleSheet(
                 f"color: {color}; font-size: 9px; background: transparent;"
             )
+            row_layout.addWidget(rank)
             row_layout.addWidget(dot)
             row_layout.addWidget(label)
             row_layout.addStretch()

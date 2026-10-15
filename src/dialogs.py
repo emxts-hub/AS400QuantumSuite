@@ -2,20 +2,23 @@ import paramiko
 import ast
 import re
 import sys
+import os
 import smtplib
 import webbrowser
+from functools import partial
 from math import atan2, degrees, hypot
 from typing import Optional, cast
 from email.message import EmailMessage
 from PyQt6.QtCore import QThread, QTimer, pyqtSignal, Qt, QRectF
-from PyQt6.QtGui import QColor, QCursor, QFont, QMouseEvent, QPainter, QPen
+from PyQt6.QtGui import QColor, QCursor, QFont, QFontMetrics, QMouseEvent, QPainter, QPen, QShowEvent
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QTextEdit, QComboBox,
     QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView,
     QApplication, QMessageBox, QGroupBox, QCheckBox,
-    QWidget, QTabWidget, QGridLayout, QProgressBar, QScrollArea, QFrame
+    QWidget, QTabWidget, QBoxLayout, QGridLayout, QProgressBar, QScrollArea, QFrame,
+    QSizeGrip, QFileDialog, QStyle,
 )
 import config
 from config import (
@@ -27,39 +30,417 @@ from ui.setcreds import load_email_alerts, save_all_configs
 
 
 def show_information_dialog(parent, title, text, *args, **kwargs):
-    return QMessageBox.information(parent, title, text, *args, **kwargs)
+    return _show_message_dialog(QMessageBox.Icon.Information, parent, title, text, *args, **kwargs)
 
 
 def show_warning_dialog(parent, title, text, *args, **kwargs):
-    return QMessageBox.warning(parent, title, text, *args, **kwargs)
+    return _show_message_dialog(QMessageBox.Icon.Warning, parent, title, text, *args, **kwargs)
 
 
 def show_critical_dialog(parent, title, text, *args, **kwargs):
-    return QMessageBox.critical(parent, title, text, *args, **kwargs)
+    return _show_message_dialog(QMessageBox.Icon.Critical, parent, title, text, *args, **kwargs)
 
 
 def ask_question_dialog(parent, title, text, *args, **kwargs):
-    return QMessageBox.question(parent, title, text, *args, **kwargs)
+    return _show_message_dialog(QMessageBox.Icon.Question, parent, title, text, *args, **kwargs)
 
 
-class SubsystemDetailDialog(QDialog):
+def _show_message_dialog(icon, parent, title, text, *args, **kwargs):
+    buttons = args[0] if args else kwargs.get("buttons", QMessageBox.StandardButton.Ok)
+    default_button = (
+        args[1] if len(args) > 1
+        else kwargs.get("defaultButton", QMessageBox.StandardButton.NoButton)
+    )
+    dialog = FramelessMessageDialog(icon, title, text, buttons, default_button, parent)
+    return dialog.exec_message()
+
+
+def _file_dialog(parent, title, directory, name_filter, accept_mode, file_mode, show_directories_only=False):
+    dialog = QFileDialog(parent, title, directory, name_filter)
+    dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+    if directory:
+        if file_mode == QFileDialog.FileMode.Directory or os.path.isdir(directory):
+            dialog.setDirectory(directory)
+        else:
+            target_path = os.path.abspath(directory)
+            target_directory = os.path.dirname(target_path)
+            if os.path.isdir(target_directory):
+                dialog.setDirectory(target_directory)
+            dialog.selectFile(os.path.basename(target_path))
+    dialog.setAcceptMode(accept_mode)
+    dialog.setFileMode(file_mode)
+    if show_directories_only:
+        dialog.setOption(QFileDialog.Option.ShowDirsOnly, True)
+    dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowType.FramelessWindowHint)
+    _install_dialog_chrome(dialog)
+    if dialog.exec() == QDialog.DialogCode.Accepted:
+        selected_files = dialog.selectedFiles()
+        selected_path = selected_files[0] if selected_files else ""
+        return selected_path, dialog.selectedNameFilter()
+    return "", dialog.selectedNameFilter()
+
+
+def get_save_file_name(parent, title, directory="", name_filter=""):
+    return _file_dialog(
+        parent, title, directory, name_filter,
+        QFileDialog.AcceptMode.AcceptSave, QFileDialog.FileMode.AnyFile,
+    )
+
+
+def get_open_file_name(parent, title, directory="", name_filter=""):
+    return _file_dialog(
+        parent, title, directory, name_filter,
+        QFileDialog.AcceptMode.AcceptOpen, QFileDialog.FileMode.ExistingFile,
+    )
+
+
+def get_existing_directory(parent, title, directory=""):
+    selected_path, _ = _file_dialog(
+        parent, title, directory, "",
+        QFileDialog.AcceptMode.AcceptOpen, QFileDialog.FileMode.Directory, True,
+    )
+    return selected_path
+
+
+def _dialog_colors():
+    app = QApplication.instance()
+    is_dark = bool(app.property("is_dark_theme")) if app is not None else True
+    return {
+        "dark": is_dark,
+        "background": "#171819" if is_dark else "#f6f8fa",
+        "surface": "#202225" if is_dark else "#ffffff",
+        "header": "#202225" if is_dark else "#eaeef2",
+        "text": "#e1e3e6" if is_dark else "#1f2328",
+        "muted": "#a4a8ae" if is_dark else "#57606a",
+        "border": "#34383d" if is_dark else "#d0d7de",
+        "accent": "#79aaff" if is_dark else "#0969da",
+        "hover": "#2a2c2f" if is_dark else "#f3f4f6",
+    }
+
+
+class DialogTitleBar(QFrame):
+    def __init__(self, dialog, title_label):
+        super().__init__(dialog)
+        self.dialog = dialog
+        self._drag_offset = None
+        self.setObjectName("dialogTitleBar")
+        self.setFixedHeight(46)
+
+        colors = _dialog_colors()
+        self.setStyleSheet(
+            f"QFrame#dialogTitleBar {{ background-color: {colors['header']}; "
+            f"border: none; border-bottom: 1px solid {colors['border']}; "
+            "border-top-left-radius: 10px; border-top-right-radius: 10px; }"
+        )
+
+        bar_layout = QHBoxLayout(self)
+        bar_layout.setContentsMargins(18, 0, 10, 0)
+        bar_layout.setSpacing(8)
+        title_label.setObjectName("dialogTitleLabel")
+        title_label.setFont(QFont("Segoe UI", 13, QFont.Weight.DemiBold))
+        title_label.setStyleSheet(
+            f"color: {colors['text']}; background: transparent; border: none; "
+            "font-family: 'Segoe UI', sans-serif; font-size: 10pt; font-weight: 600;"
+        )
+        bar_layout.addWidget(title_label)
+        bar_layout.addStretch(1)
+
+        for widget in getattr(dialog, "_dialog_header_controls", []):
+            bar_layout.addWidget(widget)
+
+        if getattr(dialog, "_dialog_show_close", True):
+            close_button = QPushButton("×")
+            close_button.setObjectName("dialogCloseButton")
+            close_button.setFixedSize(30, 30)
+            close_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            close_button.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent;
+                    color: {colors['muted']};
+                    border: none;
+                    border-radius: 6px;
+                    padding: 0;
+                    font-size: 20px;
+                    font-weight: 400;
+                }}
+                QPushButton:hover {{
+                    background-color: {'#3c1618' if colors['dark'] else '#ffebe9'};
+                    color: {'#f85149' if colors['dark'] else '#cf222e'};
+                }}
+            """)
+            close_callback = getattr(dialog, "_dialog_close_callback", dialog.reject)
+            close_button.clicked.connect(close_callback)
+            bar_layout.addWidget(close_button)
+
+    def mousePressEvent(self, a0: QMouseEvent | None):
+        if a0 is not None and a0.button() == Qt.MouseButton.LeftButton:
+            self._drag_offset = a0.globalPosition().toPoint() - self.dialog.frameGeometry().topLeft()
+            a0.accept()
+            return
+        super().mousePressEvent(a0)
+
+    def mouseMoveEvent(self, a0: QMouseEvent | None):
+        if a0 is not None and self._drag_offset is not None and a0.buttons() & Qt.MouseButton.LeftButton:
+            self.dialog.move(a0.globalPosition().toPoint() - self._drag_offset)
+            a0.accept()
+            return
+        super().mouseMoveEvent(a0)
+
+    def mouseReleaseEvent(self, a0: QMouseEvent | None):
+        self._drag_offset = None
+        super().mouseReleaseEvent(a0)
+
+
+def _install_dialog_chrome(dialog):
+    if getattr(dialog, "_dialog_chrome_installed", False):
+        return
+
+    layout = dialog.layout()
+    if layout is None:
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+    title_label = QLabel(dialog.windowTitle())
+    title_bar = DialogTitleBar(dialog, title_label)
+    if isinstance(layout, QBoxLayout):
+        layout.insertWidget(0, title_bar)
+    elif isinstance(layout, QGridLayout):
+        items = []
+        while layout.count():
+            item = layout.itemAt(0)
+            if item is not None:
+                row, column, row_span, column_span = layout.getItemPosition(0)
+                items.append((layout.takeAt(0), row, column, row_span, column_span))
+        layout.addWidget(title_bar, 0, 0, 1, max(1, layout.columnCount()))
+        for item, row, column, row_span, column_span in items:
+            layout.addItem(item, row + 1, column, row_span, column_span)
+    else:
+        layout.addWidget(title_bar)
+    colors = _dialog_colors()
+    dialog.setStyleSheet(dialog.styleSheet() + f"""
+        QDialog {{
+            border: 1px solid {colors['border']};
+            border-radius: 10px;
+        }}
+        QTableWidget {{
+            background-color: {colors['surface']};
+            color: {colors['text']};
+            alternate-background-color: {colors['hover']};
+            border: 1px solid {colors['border']};
+            border-radius: 8px;
+            gridline-color: {colors['border']};
+            selection-background-color: {colors['accent']};
+            selection-color: #ffffff;
+        }}
+        QTableWidget::item {{
+            padding: 8px 10px;
+            border-bottom: 1px solid {colors['border']};
+        }}
+        QTableWidget::item:selected {{
+            background-color: {colors['accent']};
+            color: #ffffff;
+        }}
+        QHeaderView::section {{
+            background-color: {colors['header']};
+            color: {colors['muted']};
+            border: none;
+            border-bottom: 1px solid {colors['border']};
+            padding: 10px 12px;
+            font-weight: 600;
+        }}
+    """)
+    for table in dialog.findChildren(QTableWidget):
+        table.setAlternatingRowColors(True)
+        table.horizontalHeader().setFixedHeight(42)
+        table.verticalHeader().setDefaultSectionSize(48)
+    dialog._dialog_title_label = title_label
+    dialog._dialog_title_bar = title_bar
+    dialog._dialog_chrome_installed = True
+
+    minimum_size = dialog.minimumSize()
+    maximum_size = dialog.maximumSize()
+    if not isinstance(dialog, (QMessageBox, FramelessMessageDialog)) and (
+        maximum_size.width() > minimum_size.width()
+        or maximum_size.height() > minimum_size.height()
+    ):
+        grip = QSizeGrip(dialog)
+        if isinstance(layout, QBoxLayout):
+            layout.addWidget(grip, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
+        elif isinstance(layout, QGridLayout):
+            layout.addWidget(
+                grip,
+                layout.rowCount(),
+                max(0, layout.columnCount() - 1),
+                1,
+                1,
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom,
+            )
+
+
+class FramelessDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
+        self._dialog_chrome_installed = False
+        self._dialog_header_controls = []
+        self._dialog_show_close = True
+        self._dialog_close_callback = self.reject
+        self._dialog_title_label = None
+        self._dialog_title_bar = None
+
+    def setWindowTitle(self, a0):
+        super().setWindowTitle(a0)
+        title_label = getattr(self, "_dialog_title_label", None)
+        if title_label is not None:
+            title_label.setText(a0)
+
+    def showEvent(self, a0: QShowEvent | None):
+        _install_dialog_chrome(self)
+        super().showEvent(a0)
+
+
+class FramelessMessageDialog(FramelessDialog):
+    BUTTONS = (
+        QMessageBox.StandardButton.Ok,
+        QMessageBox.StandardButton.Save,
+        QMessageBox.StandardButton.Discard,
+        QMessageBox.StandardButton.Cancel,
+        QMessageBox.StandardButton.Yes,
+        QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.Abort,
+        QMessageBox.StandardButton.Retry,
+        QMessageBox.StandardButton.Ignore,
+        QMessageBox.StandardButton.Close,
+        QMessageBox.StandardButton.Apply,
+        QMessageBox.StandardButton.Reset,
+        QMessageBox.StandardButton.RestoreDefaults,
+        QMessageBox.StandardButton.Help,
+    )
+    BUTTON_LABELS = {
+        QMessageBox.StandardButton.Ok: "OK",
+        QMessageBox.StandardButton.Save: "Save",
+        QMessageBox.StandardButton.Discard: "Discard",
+        QMessageBox.StandardButton.Cancel: "Cancel",
+        QMessageBox.StandardButton.Yes: "Yes",
+        QMessageBox.StandardButton.No: "No",
+        QMessageBox.StandardButton.Abort: "Abort",
+        QMessageBox.StandardButton.Retry: "Retry",
+        QMessageBox.StandardButton.Ignore: "Ignore",
+        QMessageBox.StandardButton.Close: "Close",
+        QMessageBox.StandardButton.Apply: "Apply",
+        QMessageBox.StandardButton.Reset: "Reset",
+        QMessageBox.StandardButton.RestoreDefaults: "Restore Defaults",
+        QMessageBox.StandardButton.Help: "Help",
+    }
+    ICONS = {
+        QMessageBox.Icon.Information: QStyle.StandardPixmap.SP_MessageBoxInformation,
+        QMessageBox.Icon.Warning: QStyle.StandardPixmap.SP_MessageBoxWarning,
+        QMessageBox.Icon.Critical: QStyle.StandardPixmap.SP_MessageBoxCritical,
+        QMessageBox.Icon.Question: QStyle.StandardPixmap.SP_MessageBoxQuestion,
+    }
+
+    def __init__(self, icon, title, text, buttons, default_button, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self._selected_button = QMessageBox.StandardButton.NoButton
+        self.setMinimumWidth(420)
+        self.resize(560, 190)
+
+        colors = _dialog_colors()
+        self.setStyleSheet(self.styleSheet() + f"""
+            QLabel#messageDialogText {{
+                color: {colors['text']};
+                background: transparent;
+                font-size: 14px;
+            }}
+            QPushButton#messageDialogButton {{
+                background-color: {colors['surface']};
+                color: {colors['text']};
+                border: 1px solid {colors['border']};
+                border-radius: 6px;
+                padding: 8px 18px;
+                min-width: 64px;
+                font-size: 13px;
+            }}
+            QPushButton#messageDialogButton:hover {{
+                background-color: {colors['hover']};
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        message_row = QHBoxLayout()
+        message_row.setContentsMargins(26, 24, 26, 20)
+        message_row.setSpacing(18)
+
+        standard_pixmap = self.ICONS.get(icon)
+        if standard_pixmap is not None:
+            icon_label = QLabel()
+            icon_label.setStyleSheet("background: transparent;")
+            style = QApplication.style()
+            if style is None:
+                raise RuntimeError("A Qt application style is required to show message dialogs.")
+            icon_label.setPixmap(style.standardIcon(standard_pixmap).pixmap(36, 36))
+            icon_label.setAlignment(Qt.AlignmentFlag.AlignTop)
+            message_row.addWidget(icon_label)
+
+        message_label = QLabel(text)
+        message_label.setObjectName("messageDialogText")
+        message_label.setWordWrap(True)
+        message_label.setTextFormat(Qt.TextFormat.AutoText)
+        message_row.addWidget(message_label, stretch=1)
+        layout.addLayout(message_row, stretch=1)
+
+        button_row = QHBoxLayout()
+        button_row.setContentsMargins(24, 10, 24, 20)
+        button_row.setSpacing(10)
+        button_row.addStretch(1)
+        self._buttons = {}
+        for standard_button in self.BUTTONS:
+            if not buttons & standard_button:
+                continue
+            button = QPushButton(self.BUTTON_LABELS[standard_button])
+            button.setObjectName("messageDialogButton")
+            button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            button.clicked.connect(partial(self._select_button, standard_button))
+            if standard_button == default_button:
+                button.setDefault(True)
+            self._buttons[standard_button] = button
+            button_row.addWidget(button)
+        if self._buttons:
+            layout.addLayout(button_row)
+
+    def _select_button(self, button, _checked=False):
+        self._selected_button = button
+        self.accept()
+
+    def exec_message(self):
+        self.exec()
+        return self._selected_button
+
+
+class SubsystemDetailDialog(FramelessDialog):
     def __init__(self, server_name, subsystem_data=None, expected_key=None, timestamp_str="", parent=None):
         super().__init__(parent)
         self.server_name = server_name
         self.expected_key = expected_key or server_name
         self.subsystem_data = subsystem_data or []
-        self.setWindowTitle(f"{server_name} - Detailed Subsystem Status")
+        title = f"{server_name} - Detailed Subsystem Status"
+        if timestamp_str:
+            title += f" ({timestamp_str})"
+        self.setWindowTitle(title)
         self.resize(850, 520)
         app = QApplication.instance()
         is_dark_theme = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
-        dialog_bg = "#0d1117" if is_dark_theme else "#f6f8fa"
-        table_bg = "#161b22" if is_dark_theme else "#ffffff"
-        surface = "#21262d" if is_dark_theme else "#eaeef2"
-        text = "#c9d1d9" if is_dark_theme else "#1f2328"
-        muted = "#8b949e" if is_dark_theme else "#57606a"
-        border = "#30363d" if is_dark_theme else "#d0d7de"
+        dialog_bg = "#171819" if is_dark_theme else "#f6f8fa"
+        table_bg = "#202225" if is_dark_theme else "#ffffff"
+        surface = "#202225" if is_dark_theme else "#eaeef2"
+        text = "#e1e3e6" if is_dark_theme else "#1f2328"
+        muted = "#a4a8ae" if is_dark_theme else "#57606a"
+        border = "#34383d" if is_dark_theme else "#d0d7de"
         self.setStyleSheet(f"""
-            QDialog {{ background-color: {dialog_bg}; border: 2px solid #2ea043; border-radius: 12px; }}
+            QDialog {{ background-color: {dialog_bg}; border: 1px solid {border}; border-radius: 8px; }}
             QLabel {{ color: {text}; background-color: transparent; }}
             QTableWidget {{ background-color: {table_bg}; border: 1px solid {border}; gridline-color: {border}; color: {text}; border-radius: 6px; }}
             QHeaderView::section {{ background-color: {surface}; color: {muted}; font-weight: bold; border: none; padding: 8px; }}
@@ -68,14 +449,6 @@ class SubsystemDetailDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
-
-        title_str = f"{server_name} Detailed Subsystem Status"
-        if timestamp_str:
-            title_str += f" ({timestamp_str})"
-        title_lbl = QLabel(title_str)
-        title_lbl.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-        title_lbl.setStyleSheet(f"color: {'#ffffff' if is_dark_theme else '#1f2328'}; background-color: transparent;")
-        layout.addWidget(title_lbl)
 
         self.table = QTableWidget()
         self.table.setColumnCount(5)
@@ -177,7 +550,7 @@ class SubsystemDetailDialog(QDialog):
                 self.table.setItem(row, col, item)
 
 
-class AppInfoDialog(QDialog):
+class AppInfoDialog(FramelessDialog):
     def __init__(self, version_str: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About this App")
@@ -186,38 +559,73 @@ class AppInfoDialog(QDialog):
         self.setMinimumHeight(350)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
 
-        self.info_label = QLabel(self._build_info_text(version_str))
+        app = QApplication.instance()
+        theme_value = app.property("is_dark_theme") if app is not None else None
+        if theme_value is None:
+            theme_value = getattr(parent, "is_dark_theme", True)
+        is_dark_theme = bool(theme_value)
+        if is_dark_theme:
+            dialog_bg = "#202225"
+            text = "#e1e3e6"
+            border = "#34383d"
+        else:
+            dialog_bg = "#ffffff"
+            text = "#1f2328"
+            border = "#d0d7de"
+
+        self.info_label = QLabel(self._build_info_text(version_str, is_dark_theme))
         self.info_label.setWordWrap(True)
         self.info_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(0)
         layout.addWidget(self.info_label)
-        self.setStyleSheet(
-            "QDialog { background-color: #0f172a; border: 1px solid #1e293b;"
-            " border-radius: 10px; }"
-            "QLabel { background-color: transparent; color: #f8fafc; padding: 4px;"
-            " font-size: 13px; line-height: 1.5; }"
-        )
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {dialog_bg};
+                border: 1px solid {border};
+                border-radius: 8px;
+            }}
+            QLabel {{
+                background-color: transparent;
+                color: {text};
+                padding: 4px;
+                font-family: 'Segoe UI', 'SF Pro Display', sans-serif;
+                font-size: 13px;
+            }}
+        """)
 
     @staticmethod
-    def _build_info_text(version_str: str) -> str:
+    def _build_info_text(version_str: str, is_dark_theme: bool = True) -> str:
+        if is_dark_theme:
+            text = "#e1e3e6"
+            secondary = "#a4a8ae"
+            muted = "#737980"
+            accent = "#79aaff"
+            border = "#34383d"
+        else:
+            text = "#1f2328"
+            secondary = "#57606a"
+            muted = "#8c959f"
+            accent = "#0969da"
+            border = "#d0d7de"
         return (
-            "<div style='font-family: Segoe UI, sans-serif; color: #e2e8f0;'>"
+            f"<div style='font-family: Segoe UI, sans-serif; color: {text};'>"
             "System: IBM i (AS/400) Real-time Monitoring & Telemetry<br>"
             "Developer: Reymart De Lara<br>"
-            "<h2 style='margin: 0 0 6px 0; color: #38bdf8; font-size: 18px;"
+            f"<h2 style='margin: 0 0 6px 0; color: {accent}; font-size: 18px;"
             " font-weight: bold; letter-spacing: 0.5px;'>AS400 QUANTUM SUITE</h2>"
-            "<div style='color: #cbd5e1; font-size: 12px; margin-bottom: 12px;'>"
+            f"<div style='color: {secondary}; font-size: 12px; margin-bottom: 12px;'>"
             "Stack: Python | SQL<br>"
             "Stack Runtime: Python | PyQt6 | SQL | DB2/ODBC<br>"
             f"Version: {version_str}"
             "</div>"
-            "<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'>"
+            f"<hr style='border: none; border-top: 1px solid {border}; margin: 12px 0;'>"
             "<div style='margin-bottom: 12px;'>"
-            "<b style='color: #f1f5f9; font-size: 13px;'>Key Features:</b>"
-            "<ul style='margin: 6px 0 0 16px; padding: 0; color: #cbd5e1;"
+            f"<b style='color: {text}; font-size: 13px;'>Key Features:</b>"
+            f"<ul style='margin: 6px 0 0 16px; padding: 0; color: {secondary};"
             " font-size: 12px; line-height: 1.6;'>"
             "<li>Real-Time LPAR Health Monitoring (CPU / ASP / Active Jobs)</li>"
             "<li>Automated Backup Management & Job Duration Analytics</li>"
@@ -226,32 +634,34 @@ class AppInfoDialog(QDialog):
             "<li>Monthly Performance Analytics & Excel Reporting</li>"
             "</ul>"
             "</div>"
-            "<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'>"
-            "<div style='color: #94a3b8; font-size: 11px; line-height: 1.5;'>"
+            f"<hr style='border: none; border-top: 1px solid {border}; margin: 12px 0;'>"
+            f"<div style='color: {muted}; font-size: 11px; line-height: 1.5;'>"
             "<b>© 2026 Reymart De Lara.</b> All Rights Reserved.<br>"
-            "<span style='color: #cbd5e1;'>Created & Developed by Reymart De Lara</span><br>"
-            "<span style='color: #64748b; font-size: 10px;'>IBM i and AS/400 are registered trademarks of IBM Corp.</span>"
+            f"<span style='color: {secondary};'>Created & Developed by Reymart De Lara</span><br>"
+            f"<span style='color: {muted}; font-size: 10px;'>IBM i and AS/400 are registered trademarks of IBM Corp.</span>"
             "</div>"
             "</div>"
         )
 
 
-class ThemeLoadingDialog(QDialog):
+class ThemeLoadingDialog(FramelessDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setFixedSize(240, 90)
+        self.setWindowTitle("Switching Theme")
+        self.setFixedSize(280, 118)
+        self._dialog_show_close = False
 
         app = QApplication.instance()
         is_dark = bool(app.property("is_dark_theme")) if app is not None else True
-        bg_clr = "#161b22" if is_dark else "#ffffff"
+        bg_clr = "#202225" if is_dark else "#ffffff"
         text_clr = "#ffffff" if is_dark else "#1f2328"
-        border_clr = "#30363d" if is_dark else "#d0d7de"
+        border_clr = "#34383d" if is_dark else "#d0d7de"
         self.setStyleSheet(f"""
             QDialog {{ background-color: {bg_clr}; border: 1px solid {border_clr}; border-radius: 8px; }}
             QLabel {{ color: {text_clr}; font-family: "Segoe UI", sans-serif; font-size: 12px; font-weight: bold; }}
-            QProgressBar {{ border: none; background-color: {"#21262d" if is_dark else "#e1e4e8"}; height: 4px; border-radius: 2px; }}
+            QProgressBar {{ border: none; background-color: {"#2a2c2f" if is_dark else "#e1e4e8"}; height: 4px; border-radius: 2px; }}
             QProgressBar::chunk {{ background-color: #238636; border-radius: 2px; }}
         """)
 
@@ -267,7 +677,7 @@ class ThemeLoadingDialog(QDialog):
         layout.addWidget(self.pbar)
 
 
-class ItemDetailDialog(QDialog):
+class ItemDetailDialog(FramelessDialog):
     def __init__(self, title_text, status_bool, command_text, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Command Detail")
@@ -276,11 +686,11 @@ class ItemDetailDialog(QDialog):
 
         app = QApplication.instance()
         is_dark_theme = bool(app.property("is_dark_theme")) if app is not None else True
-        dialog_bg = "#161b22" if is_dark_theme else "#ffffff"
-        text_clr = "#ffffff" if is_dark_theme else "#1f2328"
-        muted_clr = "#8b949e" if is_dark_theme else "#57606a"
-        surface = "#21262d" if is_dark_theme else "#eaeef2"
-        border = "#30363d" if is_dark_theme else "#d0d7de"
+        dialog_bg = "#202225" if is_dark_theme else "#ffffff"
+        text_clr = "#e1e3e6" if is_dark_theme else "#1f2328"
+        muted_clr = "#a4a8ae" if is_dark_theme else "#57606a"
+        surface = "#2a2c2f" if is_dark_theme else "#eaeef2"
+        border = "#34383d" if is_dark_theme else "#d0d7de"
         self.setStyleSheet(f"""
             QDialog {{ background-color: {dialog_bg}; border: 1px solid {border}; border-radius: 8px; }}
         """)
@@ -353,14 +763,14 @@ class ItemDetailDialog(QDialog):
         super().reject()
 
 
-class SubsystemStatusDialog(QDialog):
+class SubsystemStatusDialog(FramelessDialog):
     def __init__(self, lpar_name, subsystems, is_dark_theme, title_font, parent=None):
         super().__init__(parent)
         self.has_items = False
         self.setWindowTitle(f"Subsystem Status - {lpar_name}")
         self.setMinimumWidth(480)
-        dialog_bg = "#161b22" if is_dark_theme else "#ffffff"
-        dialog_text = "#c9d1d9" if is_dark_theme else "#1f2328"
+        dialog_bg = "#171819" if is_dark_theme else "#ffffff"
+        dialog_text = "#e1e3e6" if is_dark_theme else "#1f2328"
         self.setStyleSheet(f"QDialog {{ background-color: {dialog_bg}; color: {dialog_text}; }}")
 
         all_display_items = []
@@ -439,7 +849,7 @@ class ActiveJobTableItem(QTableWidgetItem):
         return super().__lt__(other)
 
 
-class ActiveJobsDialog(QDialog):
+class ActiveJobsDialog(FramelessDialog):
     COLUMNS = [
         ("Job Number / Job User / Job Name", "job_name"),
         ("JOB_STATUS", "job_status"),
@@ -453,31 +863,27 @@ class ActiveJobsDialog(QDialog):
         self.resize(790, 560)
         app = QApplication.instance()
         is_dark = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
-        dialog_bg = "#0d1117" if is_dark else "#f6f8fa"
-        surface = "#161b22" if is_dark else "#ffffff"
-        header_bg = "#21262d" if is_dark else "#eaeef2"
-        text = "#c9d1d9" if is_dark else "#1f2328"
-        muted = "#8b949e" if is_dark else "#57606a"
-        border = "#30363d" if is_dark else "#d0d7de"
+        dialog_bg = "#171819" if is_dark else "#f6f8fa"
+        surface = "#202225" if is_dark else "#ffffff"
+        header_bg = "#171819" if is_dark else "#eaeef2"
+        text = "#e1e3e6" if is_dark else "#1f2328"
+        muted = "#a4a8ae" if is_dark else "#57606a"
+        border = "#34383d" if is_dark else "#d0d7de"
         self.setStyleSheet(f"""
             QDialog {{ background-color: {dialog_bg}; color: {text}; }}
             QLineEdit {{ background-color: {surface}; color: {text}; border: 1px solid {border}; padding: 6px 10px; }}
             QTableWidget {{ background-color: {surface}; color: {text}; gridline-color: {border}; border: 1px solid {border}; }}
             QTableWidget::item {{ color: {text}; padding: 6px; }}
-            QTableWidget::item:selected {{ background-color: #1f6feb; color: #ffffff; }}
+            QTableWidget::item:selected {{ background-color: #303943; color: #ffffff; }}
             QHeaderView::section {{ background-color: {header_bg}; color: {muted}; padding: 8px; border: none; border-bottom: 1px solid {border}; }}
         """)
         layout = QVBoxLayout(self)
 
-        search_layout = QHBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search active jobs")
-        self.search_button = QPushButton("Search")
-        self.search_button.clicked.connect(self._apply_search)
-        self.search_input.returnPressed.connect(self._apply_search)
-        search_layout.addWidget(self.search_input)
-        search_layout.addWidget(self.search_button)
-        layout.addLayout(search_layout)
+        self.search_input.setFixedWidth(210)
+        self.search_input.textChanged.connect(self._apply_search)
+        self._dialog_header_controls = [self.search_input]
 
         self.table = QTableWidget()
         self.table.setColumnCount(len(self.COLUMNS))
@@ -536,11 +942,11 @@ class StoragePoolDonutCanvas(QWidget):
         super().__init__(parent)
         app = QApplication.instance()
         is_dark = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
-        self.background_color = QColor("#161b22" if is_dark else "#ffffff")
+        self.background_color = QColor("#202225" if is_dark else "#ffffff")
         self.entries = []
         self.value_key = ""
         self.loaded = False
-        self.setMinimumHeight(170)
+        self.setMinimumHeight(130)
         self.setMouseTracking(True)
 
     def set_data(self, entries, value_key, loaded):
@@ -565,7 +971,7 @@ class StoragePoolDonutCanvas(QWidget):
         if total <= 0:
             return ""
 
-        diameter = max(80.0, min(self.width() * 0.55, self.height() - 12))
+        diameter = min(self.width() * 0.55, max(0.0, self.height() - 12))
         center_x = self.width() / 2
         center_y = self.height() / 2
         distance = hypot(position.x() - center_x, position.y() - center_y)
@@ -601,8 +1007,10 @@ class StoragePoolDonutCanvas(QWidget):
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, message)
             return
 
-        diameter = min(self.width() * 0.55, self.height() - 12)
-        diameter = max(80.0, diameter)
+        diameter = min(self.width() * 0.55, max(0.0, self.height() - 12))
+        if diameter <= 0:
+            painter.end()
+            return
         left = (self.width() - diameter) / 2
         top = (self.height() - diameter) / 2
         pie_rect = QRectF(left, top, diameter, diameter)
@@ -632,13 +1040,14 @@ class StoragePoolDonutChart(QGroupBox):
         self.value_key = value_key
         self.entries = []
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 6)
-        layout.setSpacing(3)
+        layout.setContentsMargins(8, 6, 8, 5)
+        layout.setSpacing(2)
         self.canvas = StoragePoolDonutCanvas(self)
         layout.addWidget(self.canvas, stretch=1)
-        self.legend_layout = QHBoxLayout()
+        self.legend_layout = QGridLayout()
         self.legend_layout.setContentsMargins(0, 0, 0, 0)
-        self.legend_layout.setSpacing(8)
+        self.legend_layout.setHorizontalSpacing(8)
+        self.legend_layout.setVerticalSpacing(2)
         layout.addLayout(self.legend_layout)
 
     def set_data(self, entries, loaded):
@@ -650,19 +1059,33 @@ class StoragePoolDonutChart(QGroupBox):
             if widget is not None:
                 widget.deleteLater()
         for index, entry in enumerate(self.entries):
+            pool_name = str(entry.get("pool_name", ""))
             swatch = QWidget()
             swatch.setFixedSize(8, 8)
             swatch.setStyleSheet(
                 f"background-color: {StoragePoolDonutCanvas.COLORS[index % len(StoragePoolDonutCanvas.COLORS)]};"
             )
-            label = QLabel(str(entry.get("pool_name", "")))
-            label.setToolTip(f"{entry.get('pool_name', '')}: {entry.get(self.value_key, 0)}")
-            self.legend_layout.addWidget(swatch)
-            self.legend_layout.addWidget(label)
-        self.legend_layout.addStretch()
+            label = QLabel()
+            label.setFont(QFont("Segoe UI", 8))
+            label.setMinimumWidth(0)
+            label.setText(
+                QFontMetrics(label.font()).elidedText(
+                    pool_name,
+                    Qt.TextElideMode.ElideRight,
+                    125,
+                )
+            )
+            label.setToolTip(f"{pool_name}: {entry.get(self.value_key, 0)}")
+            legend_item = QWidget(self)
+            legend_item_layout = QHBoxLayout(legend_item)
+            legend_item_layout.setContentsMargins(0, 0, 0, 0)
+            legend_item_layout.setSpacing(4)
+            legend_item_layout.addWidget(swatch)
+            legend_item_layout.addWidget(label, stretch=1)
+            self.legend_layout.addWidget(legend_item, index // 3, index % 3)
 
 
-class ObjectStatisticsDialog(QDialog):
+class ObjectStatisticsDialog(FramelessDialog):
     COLUMNS = [
         ("OBJECT_NAME", "object_name"),
         ("LIBRARY", "library"),
@@ -693,45 +1116,48 @@ class ObjectStatisticsDialog(QDialog):
         screen = self.screen() or QApplication.primaryScreen()
         if screen:
             geometry = screen.availableGeometry()
-            self.resize(int(geometry.width() * 0.5), int(geometry.height() * 0.75))
+            self.resize(int(geometry.width() * 0.9), int(geometry.height() * 0.88))
         else:
-            self.resize(1080, 620)
+            self.resize(1200, 800)
 
         app = QApplication.instance()
         is_dark = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
-        dialog_bg = "#0d1117" if is_dark else "#f6f8fa"
-        surface = "#161b22" if is_dark else "#ffffff"
-        header_bg = "#21262d" if is_dark else "#eaeef2"
-        text = "#c9d1d9" if is_dark else "#1f2328"
-        muted = "#8b949e" if is_dark else "#57606a"
-        border = "#30363d" if is_dark else "#d0d7de"
+        dialog_bg = "#171819" if is_dark else "#f6f8fa"
+        surface = "#202225" if is_dark else "#ffffff"
+        header_bg = "#171819" if is_dark else "#eaeef2"
+        text = "#e1e3e6" if is_dark else "#1f2328"
+        muted = "#a4a8ae" if is_dark else "#57606a"
+        border = "#34383d" if is_dark else "#d0d7de"
         self.setStyleSheet(f"""
             QDialog {{ background-color: {dialog_bg}; color: {text}; }}
             QTableWidget {{ background-color: {surface}; color: {text}; gridline-color: {border}; border: 1px solid {border}; }}
             QTableWidget::item {{ color: {text}; padding: 6px; }}
-            QTableWidget::item:selected {{ background-color: #1f6feb; color: #ffffff; }}
+            QTableWidget::item:selected {{ background-color: #303943; color: #ffffff; }}
             QHeaderView::section {{ background-color: {header_bg}; color: {muted}; padding: 8px; border: none; border-bottom: 1px solid {border}; }}
+            QFrame#dialogSectionCard {{ background-color: {surface}; border: 1px solid {border}; border-radius: 10px; }}
+            QLabel#dialogSectionTitle {{ color: {text}; font-size: 13px; font-weight: 600; background: transparent; }}
+            QLabel#dialogSectionMeta {{ color: {muted}; background: transparent; }}
         """)
 
         layout = QVBoxLayout(self)
-        status_layout = QHBoxLayout()
         self.status_label = QLabel()
-        status_layout.addWidget(self.status_label)
-        status_layout.addStretch()
         self.last_update_label = QLabel()
         self.last_update_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        status_layout.addWidget(self.last_update_label)
         pool_charts_layout = QHBoxLayout()
         pool_charts_layout.setSpacing(8)
         self.pool_size_chart = StoragePoolDonutChart("Pool current size", "current_size_mb", self)
         self.pool_threads_chart = StoragePoolDonutChart("Number of threads", "current_threads", self)
+        self.pool_size_chart.setMaximumHeight(230)
+        self.pool_threads_chart.setMaximumHeight(230)
         pool_charts_layout.addWidget(self.pool_size_chart, stretch=1)
         pool_charts_layout.addWidget(self.pool_threads_chart, stretch=1)
-        layout.addLayout(pool_charts_layout)
+        layout.addLayout(pool_charts_layout, stretch=1)
         self.temp_storage_title = QLabel(
             "Top 20 Jobs by Temporary Storage (refreshes with live cards)"
         )
+        self.temp_storage_title.setObjectName("dialogSectionTitle")
         self.temp_storage_status_label = QLabel()
+        self.temp_storage_status_label.setObjectName("dialogSectionMeta")
         self.temp_storage_table = QTableWidget()
         self.temp_storage_table.setColumnCount(5)
         self.temp_storage_table.setHorizontalHeaderLabels([
@@ -741,16 +1167,23 @@ class ObjectStatisticsDialog(QDialog):
         self.temp_storage_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.temp_storage_table.setWordWrap(False)
         self.temp_storage_table.setAlternatingRowColors(True)
-        self.temp_storage_table.setMaximumHeight(230)
+        self.temp_storage_table.setMinimumHeight(160)
         cast(QHeaderView, self.temp_storage_table.verticalHeader()).setVisible(False)
         temp_header = cast(QHeaderView, self.temp_storage_table.horizontalHeader())
         temp_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         temp_header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.temp_storage_title)
-        layout.addWidget(self.temp_storage_status_label)
-        layout.addWidget(self.temp_storage_table)
-        self.status_layout = status_layout
-        layout.addLayout(self.status_layout)
+        temp_storage_card = QFrame()
+        temp_storage_card.setObjectName("dialogSectionCard")
+        temp_storage_layout = QVBoxLayout(temp_storage_card)
+        temp_storage_layout.setContentsMargins(14, 12, 14, 12)
+        temp_storage_layout.setSpacing(8)
+        temp_storage_header = QHBoxLayout()
+        temp_storage_header.addWidget(self.temp_storage_title)
+        temp_storage_header.addStretch()
+        temp_storage_header.addWidget(self.temp_storage_status_label)
+        temp_storage_layout.addLayout(temp_storage_header)
+        temp_storage_layout.addWidget(self.temp_storage_table)
+        layout.addWidget(temp_storage_card, stretch=1)
         self.table = QTableWidget()
         self.table.setColumnCount(len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels([label for label, _ in self.COLUMNS])
@@ -758,11 +1191,28 @@ class ObjectStatisticsDialog(QDialog):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setWordWrap(False)
         self.table.setAlternatingRowColors(True)
+        self.table.setMinimumHeight(190)
         cast(QHeaderView, self.table.verticalHeader()).setVisible(False)
         header = cast(QHeaderView, self.table.horizontalHeader())
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.table)
+        object_statistics_card = QFrame()
+        object_statistics_card.setObjectName("dialogSectionCard")
+        object_statistics_layout = QVBoxLayout(object_statistics_card)
+        object_statistics_layout.setContentsMargins(14, 12, 14, 12)
+        object_statistics_layout.setSpacing(8)
+        object_statistics_header = QHBoxLayout()
+        object_statistics_title = QLabel("Object statistics")
+        object_statistics_title.setObjectName("dialogSectionTitle")
+        self.status_label.setObjectName("dialogSectionMeta")
+        object_statistics_header.addWidget(object_statistics_title)
+        object_statistics_header.addStretch()
+        object_statistics_header.addWidget(self.status_label)
+        object_statistics_layout.addLayout(object_statistics_header)
+        object_statistics_layout.addWidget(self.table)
+        layout.addWidget(object_statistics_card, stretch=2)
+        self.last_update_label.setObjectName("dialogSectionMeta")
+        layout.addWidget(self.last_update_label)
         self.update_data(
             rows or [],
             error,
@@ -777,6 +1227,11 @@ class ObjectStatisticsDialog(QDialog):
             top_temporary_storage_jobs_error,
             loaded if top_temporary_storage_jobs_loaded is None else top_temporary_storage_jobs_loaded,
         )
+
+    def showEvent(self, a0):
+        super().showEvent(a0)
+        for table in (self.temp_storage_table, self.table):
+            cast(QHeaderView, table.verticalHeader()).setDefaultSectionSize(34)
 
     def update_data(
         self, rows, error="", loaded=False, updated_at="", storage_pools=None,
@@ -869,7 +1324,7 @@ class ObjectStatisticsDialog(QDialog):
                 self.temp_storage_table.setItem(row_index, column_index, item)
 
 
-class TopCpuJobsDialog(QDialog):
+class TopCpuJobsDialog(FramelessDialog):
     COLUMNS = [
         ("JOB_NAME", "job_name"),
         ("AUTHORIZATION_NAME", "authorization_name"),
@@ -883,23 +1338,40 @@ class TopCpuJobsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(f"{server_name} - Top CPU Jobs")
         screen = self.screen() or QApplication.primaryScreen()
-        dialog_width = int(screen.availableGeometry().width() * 0.9) if screen else 1080
-        self.resize(dialog_width, 520)
+        if screen:
+            geometry = screen.availableGeometry()
+            self.resize(int(geometry.width() * 0.9), int(geometry.height() * 0.82))
+        else:
+            self.resize(1200, 700)
         app = QApplication.instance()
         is_dark = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
-        dialog_bg = "#0d1117" if is_dark else "#f6f8fa"
-        surface = "#161b22" if is_dark else "#ffffff"
-        header_bg = "#21262d" if is_dark else "#eaeef2"
-        text = "#c9d1d9" if is_dark else "#1f2328"
-        muted = "#8b949e" if is_dark else "#57606a"
-        border = "#30363d" if is_dark else "#d0d7de"
+        dialog_bg = "#171819" if is_dark else "#f6f8fa"
+        surface = "#202225" if is_dark else "#ffffff"
+        header_bg = "#171819" if is_dark else "#eaeef2"
+        text = "#e1e3e6" if is_dark else "#1f2328"
+        muted = "#a4a8ae" if is_dark else "#57606a"
+        border = "#34383d" if is_dark else "#d0d7de"
         self.setStyleSheet(f"""
             QDialog {{ background-color: {dialog_bg}; color: {text}; }}
             QTableWidget {{ background-color: {surface}; color: {text}; gridline-color: {border}; border: 1px solid {border}; }}
             QTableWidget::item {{ color: {text}; padding: 6px; }}
-            QTableWidget::item:selected {{ background-color: #1f6feb; color: #ffffff; }}
+            QTableWidget::item:selected {{ background-color: #303943; color: #ffffff; }}
             QHeaderView::section {{ background-color: {header_bg}; color: {muted}; padding: 8px; border: none; border-bottom: 1px solid {border}; }}
         """)
+        colors = _dialog_colors()
+        self.count_badge = QLabel("0")
+        self.count_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.count_badge.setMinimumWidth(28)
+        self.count_badge.setFixedHeight(22)
+        self.count_badge.setStyleSheet(
+            f"QLabel {{ background-color: {colors['accent']}; color: #ffffff; "
+            "border-radius: 11px; padding: 0 7px; font-size: 8pt; font-weight: bold; }"
+        )
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Filter jobs...")
+        self.search_input.setFixedWidth(205)
+        self.search_input.textChanged.connect(self._apply_search)
+        self._dialog_header_controls = [self.count_badge, self.search_input]
         layout = QVBoxLayout(self)
         self.table = QTableWidget()
         self.table.setColumnCount(len(self.COLUMNS))
@@ -914,7 +1386,12 @@ class TopCpuJobsDialog(QDialog):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.table)
+        self._top_jobs = []
         self.update_jobs(jobs or [])
+
+    def showEvent(self, a0):
+        super().showEvent(a0)
+        cast(QHeaderView, self.table.verticalHeader()).setDefaultSectionSize(34)
 
     def update_jobs(self, jobs):
         top_jobs = sorted(
@@ -927,6 +1404,18 @@ class TopCpuJobsDialog(QDialog):
             reverse=True,
         )
         self.setWindowTitle(f"{self.windowTitle().split(' - ')[0]} - Top CPU Jobs ({len(top_jobs)})")
+        self.count_badge.setText(str(len(top_jobs)))
+        self._top_jobs = top_jobs
+        self._apply_search()
+
+    def _apply_search(self):
+        search_text = self.search_input.text().strip().lower()
+        top_jobs = [
+            job for job in self._top_jobs
+            if not search_text or search_text in " ".join(
+                str(job.get(key, "")) for _, key in self.COLUMNS
+            ).lower()
+        ]
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(top_jobs))
         for row_index, job in enumerate(top_jobs):
@@ -948,7 +1437,7 @@ def _numeric_sort_value(value):
         return 0.0
 
 
-class WebAppJobsDialog(QDialog):
+class WebAppJobsDialog(FramelessDialog):
     COLUMNS = [
         "Web App",
         "Job Number / Job User / Job Name",
@@ -965,12 +1454,12 @@ class WebAppJobsDialog(QDialog):
 
         app = QApplication.instance()
         is_dark = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
-        dialog_bg = "#0d1117" if is_dark else "#f6f8fa"
-        surface = "#161b22" if is_dark else "#ffffff"
-        header_bg = "#21262d" if is_dark else "#eaeef2"
-        text = "#c9d1d9" if is_dark else "#1f2328"
-        muted = "#8b949e" if is_dark else "#57606a"
-        border = "#30363d" if is_dark else "#d0d7de"
+        dialog_bg = "#171819" if is_dark else "#f6f8fa"
+        surface = "#202225" if is_dark else "#ffffff"
+        header_bg = "#171819" if is_dark else "#eaeef2"
+        text = "#e1e3e6" if is_dark else "#1f2328"
+        muted = "#a4a8ae" if is_dark else "#57606a"
+        border = "#34383d" if is_dark else "#d0d7de"
         self.setStyleSheet(f"""
             QDialog {{ background-color: {dialog_bg}; color: {text}; }}
             QTableWidget {{ background-color: {surface}; color: {text}; gridline-color: {border}; border: 1px solid {border}; }}
@@ -1090,7 +1579,7 @@ class TestEmailThread(QThread):
             self.result_ready.emit(False, f"Sending test email failed: {str(exc)}")
 
 
-class AppExpirationDialog(QDialog):
+class AppExpirationDialog(FramelessDialog):
     def __init__(self, title: str, message: str, download_url: Optional[str] = None, parent=None):
         super().__init__(parent)
         self.download_url = download_url
@@ -1100,25 +1589,35 @@ class AppExpirationDialog(QDialog):
         self.setWindowFlags(
             Qt.WindowType.Dialog
             | Qt.WindowType.CustomizeWindowHint
-            | Qt.WindowType.WindowTitleHint
+            | Qt.WindowType.FramelessWindowHint
         )
         self.setModal(True)
+        self._dialog_close_callback = self._exit_application
 
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #0d1117;
-                color: #c9d1d9;
-            }
-            QLabel {
+        app = QApplication.instance()
+        is_dark = bool(app.property("is_dark_theme")) if app is not None else True
+        dialog_bg = "#171819" if is_dark else "#f6f8fa"
+        dialog_text = "#e1e3e6" if is_dark else "#1f2328"
+        muted_text = "#a4a8ae" if is_dark else "#57606a"
+        surface = "#202225" if is_dark else "#ffffff"
+        border = "#34383d" if is_dark else "#d0d7de"
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {dialog_bg};
+                color: {dialog_text};
+                border: 1px solid {border};
+                border-radius: 8px;
+            }}
+            QLabel {{
                 background-color: transparent;
                 font-family: 'Segoe UI', sans-serif;
-            }
-            QPushButton {
+            }}
+            QPushButton {{
                 border-radius: 6px;
                 padding: 8px 16px;
                 font-size: 12px;
                 font-weight: bold;
-            }
+            }}
         """)
 
         layout = QVBoxLayout(self)
@@ -1129,7 +1628,7 @@ class AppExpirationDialog(QDialog):
         full_message = (
             f"<div style='text-align: center; color: #f85149; font-size: 14px; font-weight: bold;'>"
             f"{message}</div>"
-            f"<div style='text-align: center; color: #8b949e; font-size: 12px; margin-top: 10px;'>"
+            f"<div style='text-align: center; color: {muted_text}; font-size: 12px; margin-top: 10px;'>"
             f"Please contact the developer for a new build or access renewal.</div>"
         )
 
@@ -1156,15 +1655,15 @@ class AppExpirationDialog(QDialog):
             btn_layout.addWidget(self.update_btn)
 
         self.exit_btn = QPushButton("Exit")
-        self.exit_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #21262d;
-                color: #c9d1d9;
-                border: 1px solid #30363d;
-            }
-            QPushButton:hover {
-                background-color: #30363d;
-            }
+        self.exit_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {surface};
+                color: {dialog_text};
+                border: 1px solid {border};
+            }}
+            QPushButton:hover {{
+                background-color: {border};
+            }}
         """)
         self.exit_btn.clicked.connect(self._exit_application)
         btn_layout.addWidget(self.exit_btn)
@@ -1185,7 +1684,7 @@ class AppExpirationDialog(QDialog):
 
 
 
-class LparSettingsDialog(QDialog):
+class LparSettingsDialog(FramelessDialog):
     """Modal dialog allowing users to dynamically configure LPAR IPs, Database names, Subsystems, and Network Ports."""
     def __init__(self, current_configs, parent=None):
         super().__init__(parent)
@@ -1194,12 +1693,12 @@ class LparSettingsDialog(QDialog):
         self.configs = current_configs.copy()
         app = QApplication.instance()
         is_dark_theme = bool(app and app.property("is_dark_theme"))
-        dialog_bg = "#161b22" if is_dark_theme else "#ffffff"
-        table_bg = "#0d1117" if is_dark_theme else "#f6f8fa"
-        surface = "#21262d" if is_dark_theme else "#eaeef2"
-        text = "#c9d1d9" if is_dark_theme else "#1f2328"
-        muted = "#8b949e" if is_dark_theme else "#57606a"
-        border = "#30363d" if is_dark_theme else "#d0d7de"
+        dialog_bg = "#171819" if is_dark_theme else "#ffffff"
+        table_bg = "#202225" if is_dark_theme else "#f6f8fa"
+        surface = "#202225" if is_dark_theme else "#eaeef2"
+        text = "#e1e3e6" if is_dark_theme else "#1f2328"
+        muted = "#a4a8ae" if is_dark_theme else "#57606a"
+        border = "#34383d" if is_dark_theme else "#d0d7de"
 
         self.setStyleSheet(f"""
             QDialog {{ background-color: {dialog_bg}; color: {text}; }}
@@ -1457,7 +1956,7 @@ class LparSettingsDialog(QDialog):
 
             other_item = self.table.item(row, 0)
             if other_item and other_item.text().strip().lower() == entered_ip.lower():
-                QMessageBox.warning(
+                show_warning_dialog(
                     self,
                     "Duplicate IP Detected",
                     f"The IP / Hostname '{entered_ip}' is already assigned to another entry in row {row + 1}.",
@@ -1508,10 +2007,14 @@ class LparSettingsDialog(QDialog):
     def _show_loading_state(self, is_loading: bool):
         if is_loading:
             if not hasattr(self, "_loading_dialog"):
-                self._loading_dialog = QMessageBox(self)
-                self._loading_dialog.setWindowTitle("Sending test mail")
-                self._loading_dialog.setText("Sending test mail...")
-                self._loading_dialog.setStandardButtons(QMessageBox.StandardButton.NoButton)
+                self._loading_dialog = FramelessMessageDialog(
+                    QMessageBox.Icon.NoIcon,
+                    "Sending test mail",
+                    "Sending test mail...",
+                    QMessageBox.StandardButton.NoButton,
+                    QMessageBox.StandardButton.NoButton,
+                    self,
+                )
                 self._loading_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
                 self._loading_dialog.setModal(True)
             self._loading_dialog.show()
@@ -1530,9 +2033,9 @@ class LparSettingsDialog(QDialog):
         self.test_email_btn.setEnabled(True)
         self._show_loading_state(False)
         if success:
-            QMessageBox.information(self, "Test Email", message)
+            show_information_dialog(self, "Test Email", message)
         else:
-            QMessageBox.critical(self, "Test Email Failed", message)
+            show_critical_dialog(self, "Test Email Failed", message)
 
     def send_test_email(self):
         # Gather SMTP settings
@@ -1550,14 +2053,14 @@ class LparSettingsDialog(QDialog):
 
         # Validate addresses
         if from_address and not self._is_valid_email(from_address):
-            QMessageBox.warning(self, "Invalid From Address", "Please enter a valid From email address.")
+            show_warning_dialog(self, "Invalid From Address", "Please enter a valid From email address.")
             return
         if not to_addresses:
-            QMessageBox.warning(self, "No Recipients", "Please specify at least one recipient in To Addresses.")
+            show_warning_dialog(self, "No Recipients", "Please specify at least one recipient in To Addresses.")
             return
         for a in to_addresses:
             if not self._is_valid_email(a):
-                QMessageBox.warning(self, "Invalid Recipient", f"The recipient address '{a}' does not look valid.")
+                show_warning_dialog(self, "Invalid Recipient", f"The recipient address '{a}' does not look valid.")
                 return
 
         self.test_email_btn.setEnabled(False)
@@ -1587,7 +2090,7 @@ class LparSettingsDialog(QDialog):
             if host_item and host_item.text().strip():
                 ip_str = host_item.text().strip().lower()
                 if ip_str in seen_ips:
-                    QMessageBox.warning(
+                    show_warning_dialog(
                         self,
                         "Duplicate IP Error",
                         f"Duplicate IP / Hostname '{host_item.text().strip()}' found for row {seen_ips[ip_str]} and row {row + 1}.\n\nEach LPAR must have a unique IP address.",
@@ -1681,14 +2184,14 @@ class LparSettingsDialog(QDialog):
 
         # Basic email validation
         if from_address and not self._is_valid_email(from_address):
-            QMessageBox.warning(self, "Invalid From Address", "Please enter a valid From email address.")
+            show_warning_dialog(self, "Invalid From Address", "Please enter a valid From email address.")
             return
         if not to_addresses:
-            QMessageBox.warning(self, "No Recipients", "Please specify at least one recipient in To Addresses.")
+            show_warning_dialog(self, "No Recipients", "Please specify at least one recipient in To Addresses.")
             return
         for a in to_addresses:
             if not self._is_valid_email(a):
-                QMessageBox.warning(self, "Invalid Recipient", f"The recipient address '{a}' does not look valid.")
+                show_warning_dialog(self, "Invalid Recipient", f"The recipient address '{a}' does not look valid.")
                 return
 
         email_alerts = {
@@ -1708,7 +2211,7 @@ class LparSettingsDialog(QDialog):
 
         # Attempt to save — save_all_configs will securely persist password if possible
         if not save_all_configs(new_configs, new_subsystems, new_ports, email_alerts=email_alerts):
-            QMessageBox.critical(self, "Save Failed", "The configuration could not be saved.")
+            show_critical_dialog(self, "Save Failed", "The configuration could not be saved.")
             return
 
         # Update in-memory globals
@@ -1761,18 +2264,18 @@ class SSHRunnerThread(QThread):
             self.output_signal.emit(f"SSH Error on {self.host}: {str(e)}")
 
 
-class CommandQuickActionDialog(QDialog):
+class CommandQuickActionDialog(FramelessDialog):
     def __init__(self, default_server="", default_cmd="", username="", password="", server_configs=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Command Quick-Action Panel")
         self.resize(550, 400)
         app = QApplication.instance()
         is_dark_theme = bool(app is not None and app.property("is_dark_theme"))
-        dialog_bg = "#161b22" if is_dark_theme else "#ffffff"
-        input_bg = "#0d1117" if is_dark_theme else "#f6f8fa"
-        text = "#c9d1d9" if is_dark_theme else "#1f2328"
-        muted = "#8b949e" if is_dark_theme else "#57606a"
-        border = "#30363d" if is_dark_theme else "#d0d7de"
+        dialog_bg = "#171819" if is_dark_theme else "#ffffff"
+        input_bg = "#202225" if is_dark_theme else "#f6f8fa"
+        text = "#e1e3e6" if is_dark_theme else "#1f2328"
+        muted = "#a4a8ae" if is_dark_theme else "#57606a"
+        border = "#34383d" if is_dark_theme else "#d0d7de"
         self.setStyleSheet(f"""
             QDialog {{ background-color: {dialog_bg}; color: {text}; }}
             QLabel {{ color: {text}; font-weight: bold; }}

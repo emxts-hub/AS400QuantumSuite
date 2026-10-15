@@ -8577,3 +8577,390 @@ Traceback (most recent call last):
     " border-radius: 0px;"
     ^^^^^^^^^^^^^^^
 AttributeError: 'QPushButton' object has no attribute 'setAlignment'
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 653, in _on_history_loaded
+    self.populate_views()
+    ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 815, in populate_views
+    self._fill_matrix(self.asp_table, asp_matrix)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 838, in _fill_matrix
+    item.setForeground(QColor(missing_text))
+                              ^^^^^^^^^^^^
+NameError: name 'missing_text' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 653, in _on_history_loaded
+    self.populate_views()
+    ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 815, in populate_views
+    self._fill_matrix(self.asp_table, asp_matrix)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 838, in _fill_matrix
+    item.setForeground(QColor(missing_text))
+                              ^^^^^^^^^^^^
+NameError: name 'missing_text' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 653, in _on_history_loaded
+    self.populate_views()
+    ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 815, in populate_views
+    self._fill_matrix(self.asp_table, asp_matrix)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 838, in _fill_matrix
+    item.setForeground(QColor(missing_text))
+                              ^^^^^^^^^^^^
+NameError: name 'missing_text' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 653, in _on_history_loaded
+    self.populate_views()
+    ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 815, in populate_views
+    self._fill_matrix(self.asp_table, asp_matrix)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 838, in _fill_matrix
+    item.setForeground(QColor(missing_text))
+                              ^^^^^^^^^^^^
+NameError: name 'missing_text' is not defined
+
+Fatal startup crash: not all arguments converted during string formatting
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\main.py", line 73, in main
+    window = ui.main_window.IBMiDashboard()
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 1761, in __init__
+    self.log_viewer_widget = LogViewerWidget()
+                             ~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 311, in __init__
+    self.asp_table = self._build_matrix_table()
+                     ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 570, in _build_matrix_table
+    self._apply_table_styling(table)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\log_viewer.py", line 591, in _apply_table_styling
+    table.setStyleSheet("""
+                        ~~~
+    ...<20 lines>...
+        }
+        ~
+    """ % (table_background, gridline, border, text, header_background, header_text, border, gridline))
+    ~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+TypeError: not all arguments converted during string formatting
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined
+
+--- UNHANDLED EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4348, in <lambda>
+    self._on_single_server_fetched_independent(data, gen, task, srv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 4485, in _on_single_server_fetched_independent
+    self._refresh_global_status_summary()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Reymart De Lara\Desktop\Pure-SQL\src\ui\main_window.py", line 3757, in _refresh_global_status_summary
+    if was_monitoring:
+       ^^^^^^^^^^^^^^
+NameError: name 'was_monitoring' is not defined

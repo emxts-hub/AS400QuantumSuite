@@ -10,11 +10,15 @@ from PyQt6.QtGui import QColor, QFont, QCursor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, 
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, 
-    QAbstractItemView, QScrollArea, QFrame, QFileDialog,
+    QAbstractItemView, QScrollArea, QFrame,
     QApplication, QGridLayout
 )
 from config import get_logs_dir, get_all_logs_dirs
-from dialogs import SubsystemStatusDialog, show_critical_dialog, show_information_dialog
+from dialogs import (
+    SubsystemStatusDialog, get_save_file_name, show_critical_dialog,
+    show_information_dialog,
+)
+from system_logging import SYSTEM_LOGGER
 
 if TYPE_CHECKING:
     from ui.monthly_report import MonthlyReportWidget
@@ -205,6 +209,7 @@ class LogViewerWidget(QWidget):
         self.log_buffer_limit = 50
         self.active_lpars = []
         self.section_headers = []
+        self.section_cards = []
         self._history_loading = False
         self._history_reload_pending = False
         self._history_reload_force = False
@@ -223,9 +228,9 @@ class LogViewerWidget(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet("""
-            QScrollArea { background-color: #0d1117; }
+            QScrollArea { background-color: #171819; }
             QScrollBar:vertical {
-                background: #0d1117;
+                background: #171819;
                 width: 10px;
                 margin: 0px;
             }
@@ -238,7 +243,7 @@ class LogViewerWidget(QWidget):
                 background: #8b949e;
             }
             QScrollBar:horizontal {
-                background: #0d1117;
+                background: #171819;
                 height: 10px;
                 margin: 0px;
             }
@@ -254,27 +259,30 @@ class LogViewerWidget(QWidget):
 
         self.container = QWidget()
         container = self.container
-        container.setStyleSheet("background-color: #0d1117;")
+        container.setStyleSheet("background-color: #171819;")
         self.container_layout = QVBoxLayout(container)
-        self.container_layout.setContentsMargins(0, 0, 0, 0)
-        self.container_layout.setSpacing(16)
+        self.container_layout.setContentsMargins(14, 12, 14, 14)
+        self.container_layout.setSpacing(12)
 
-        header_bar = QHBoxLayout()
+        self.summary_header = QFrame()
+        self.summary_header.setObjectName("logSummaryHeader")
+        header_bar = QHBoxLayout(self.summary_header)
+        header_bar.setContentsMargins(12, 8, 12, 8)
+        header_bar.setSpacing(8)
         self.title_label = QLabel("IBM i LPAR Daily Summary")
         self.title_label.setFont(self._make_font("Segoe UI", 14, QFont.Weight.Bold))
-        self.title_label.setStyleSheet("color: #ffffff;")
         header_bar.addWidget(self.title_label)
 
         header_bar.addStretch()
 
         self.last_refresh_label = QLabel("Last updated: Never")
         self.last_refresh_label.setFont(self._make_font("Segoe UI", 9, QFont.Weight.Normal))
-        self.last_refresh_label.setStyleSheet("color: #8b949e; margin-right: 8px;")
         header_bar.addWidget(self.last_refresh_label)
 
         date_lbl = QLabel("Select Date:")
         date_lbl.setFont(self._make_font("Segoe UI", 10, QFont.Weight.Bold))
-        date_lbl.setStyleSheet("color: #8b949e;")
+        date_lbl.setObjectName("logControlLabel")
+        self.control_labels = [date_lbl]
         header_bar.addWidget(date_lbl)
 
         self.date_combo = QComboBox()
@@ -285,7 +293,8 @@ class LogViewerWidget(QWidget):
 
         buffer_lbl = QLabel("Log Buffer:")
         buffer_lbl.setFont(self._make_font("Segoe UI", 10, QFont.Weight.Bold))
-        buffer_lbl.setStyleSheet("color: #8b949e;")
+        buffer_lbl.setObjectName("logControlLabel")
+        self.control_labels.append(buffer_lbl)
         header_bar.addWidget(buffer_lbl)
 
         self.buffer_combo = QComboBox()
@@ -296,36 +305,20 @@ class LogViewerWidget(QWidget):
         self.buffer_combo.currentIndexChanged.connect(self.on_buffer_changed)
         header_bar.addWidget(self.buffer_combo)
 
-        btn_export = QPushButton("Export Excel")
-        btn_export.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        btn_export.setStyleSheet("""
-            QPushButton {
-                background-color: #1f6feb;
-                color: #ffffff;
-                border: 1px solid #388bfd;
-                padding: 6px 12px;
-                border-radius: 6px;
-                font-size: 11px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #388bfd;
-            }
-        """)
-        btn_export.clicked.connect(self.export_to_excel)
-        header_bar.addWidget(btn_export)
+        self.export_button = QPushButton("Export Excel")
+        self.export_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.export_button.setObjectName("logExportButton")
+        self.export_button.clicked.connect(self.export_to_excel)
+        header_bar.addWidget(self.export_button)
 
-        self.container_layout.addLayout(header_bar)
+        self.container_layout.addWidget(self.summary_header)
 
-        self.container_layout.addWidget(self._create_section_header("ASP Usage"))
         self.asp_table = self._build_matrix_table()
-        self.container_layout.addWidget(self.asp_table)
+        self.container_layout.addWidget(self._create_table_section("ASP Usage", self.asp_table))
 
-        self.container_layout.addWidget(self._create_section_header("CPU Usage"))
         self.cpu_table = self._build_matrix_table()
-        self.container_layout.addWidget(self.cpu_table)
+        self.container_layout.addWidget(self._create_table_section("CPU Usage", self.cpu_table))
 
-        self.container_layout.addWidget(self._create_section_header("Real-time down logs"))
         self.stream_table = QTableWidget()
         self.stream_table.setColumnCount(8)
         self.stream_table.setHorizontalHeaderLabels([
@@ -339,8 +332,8 @@ class LogViewerWidget(QWidget):
             vertical_header.hide()
         self.stream_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._apply_table_styling(self.stream_table)
-        self.stream_table.setMinimumHeight(280)
-        self.container_layout.addWidget(self.stream_table)
+        self.stream_table.setMinimumHeight(500)
+        self.container_layout.addWidget(self._create_table_section("Real-time down logs", self.stream_table))
 
         scroll.setWidget(container)
         main_layout.addWidget(scroll)
@@ -353,13 +346,11 @@ class LogViewerWidget(QWidget):
         self.reload_timer = QTimer(self)
         self.reload_timer.setSingleShot(True)
         self.reload_timer.setInterval(1000)
-        self.reload_timer.timeout.connect(lambda: self.load_log_history(silent=True))
+        self.reload_timer.timeout.connect(self._reload_log_history_if_visible)
 
         self.file_watcher = QFileSystemWatcher(self)
         self.file_watcher.directoryChanged.connect(self._on_logs_changed)
         self.file_watcher.fileChanged.connect(self._on_logs_changed)
-
-        self._setup_file_watcher()
 
         # Slow, coalesced background refresh so the UI does not re-scan the log tree every second.
         self.auto_refresh_timer = QTimer(self)
@@ -367,13 +358,14 @@ class LogViewerWidget(QWidget):
         self.auto_refresh_timer.timeout.connect(self._refresh_log_viewer_if_needed)
         self.auto_refresh_timer.start()
 
-        # Initial loading call (shows overlay on app boot)
-        QTimer.singleShot(50, lambda: self.load_log_history(silent=False))
-
     def _refresh_log_viewer_if_needed(self):
-        if self._history_loading:
+        if self._history_loading or not self.isVisible():
             return
         self.load_log_history(silent=True)
+
+    def _reload_log_history_if_visible(self):
+        if self.isVisible():
+            self.load_log_history(silent=True)
 
     def on_buffer_changed(self):
         value = self.buffer_combo.currentText()
@@ -451,21 +443,79 @@ class LogViewerWidget(QWidget):
     def set_theme(self, is_dark_theme):
         self.is_dark_theme = is_dark_theme
         if is_dark_theme:
-            background = "#0d1117"
-            text = "#ffffff"
-            muted = "#8b949e"
+            background = "#171819"
+            surface = "#202225"
+            border = "#34383d"
+            scrollbar_handle = "#30363d"
+            scrollbar_hover = "#8b949e"
+            text = "#e1e3e6"
+            muted = "#a4a8ae"
+            accent = "#79aaff"
+            export_background = "#1f6feb"
+            export_hover = "#388bfd"
         else:
             background = "#f6f8fa"
+            surface = "#ffffff"
+            border = "#d0d7de"
+            scrollbar_handle = "#afb8c1"
+            scrollbar_hover = "#8c959f"
             text = "#1f2328"
             muted = "#57606a"
+            accent = "#0969da"
+            export_background = "#0969da"
+            export_hover = "#0550ae"
 
+        self.setStyleSheet(f"background-color: {background};")
         self.container.setStyleSheet(f"background-color: {background};")
-        self.scroll_area.setStyleSheet(f"QScrollArea {{ background-color: {background}; }}")
-        self.title_label.setStyleSheet(f"color: {text};")
-        self.last_refresh_label.setStyleSheet(f"color: {muted}; margin-right: 8px;")
+        self.summary_header.setStyleSheet(
+            f"QFrame#logSummaryHeader {{ background-color: {surface}; border: 1px solid {border}; border-radius: 8px; }}"
+        )
+        self.scroll_area.setStyleSheet(f"""
+            QScrollArea {{ background-color: {background}; }}
+            QScrollBar:vertical, QScrollBar:horizontal {{
+                background: {background};
+                margin: 0px;
+            }}
+            QScrollBar:vertical {{ width: 10px; }}
+            QScrollBar:horizontal {{ height: 10px; }}
+            QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
+                background: {scrollbar_handle};
+                min-height: 20px;
+                min-width: 20px;
+                border-radius: 5px;
+            }}
+            QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {{
+                background: {scrollbar_hover};
+            }}
+        """)
+        self.scroll_area.viewport().setStyleSheet(
+            f"background-color: {background};"
+        )
+        self.title_label.setStyleSheet(f"color: {text}; background-color: transparent;")
+        self.last_refresh_label.setStyleSheet(
+            f"color: {muted}; background-color: transparent; margin-right: 8px;"
+        )
+        for control_label in self.control_labels:
+            control_label.setStyleSheet(f"color: {muted}; background-color: transparent;")
+        self.export_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {export_background};
+                color: #ffffff;
+                border: 1px solid {accent};
+                padding: 6px 12px;
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{ background-color: {export_hover}; }}
+        """)
         for header in self.section_headers:
             header.setStyleSheet(
-                f"color: {text}; margin-top: 10px; border: none; background: transparent;"
+                f"color: {text}; padding: 0 10px; border: none; background: transparent;"
+            )
+        for card in self.section_cards:
+            card.setStyleSheet(
+                f"QFrame#logTableSection {{ background-color: {surface}; border: 1px solid {border}; border-radius: 7px; }}"
             )
         self._apply_table_styling(self.asp_table)
         self._apply_table_styling(self.cpu_table)
@@ -480,6 +530,8 @@ class LogViewerWidget(QWidget):
                 self.file_watcher.addPath(logs_dir)
 
     def _on_logs_changed(self, path):
+        if not self.isVisible():
+            return
         self._setup_file_watcher()
         self.reload_timer.start()
 
@@ -489,11 +541,22 @@ class LogViewerWidget(QWidget):
 
     def _create_section_header(self, text):
         lbl = QLabel(text)
-        lbl.setFont(self._make_font("Segoe UI", 11, QFont.Weight.Bold))
+        lbl.setFont(self._make_font("Segoe UI", 10, QFont.Weight.Bold))
         header_color = "#ffffff" if self.is_dark_theme else "#1f2328"
-        lbl.setStyleSheet(f"color: {header_color}; margin-top: 10px; border: none; background: transparent;")
+        lbl.setStyleSheet(f"color: {header_color}; padding: 0 10px; border: none; background: transparent;")
         self.section_headers.append(lbl)
         return lbl
+
+    def _create_table_section(self, title, table):
+        card = QFrame()
+        card.setObjectName("logTableSection")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(0, 8, 0, 0)
+        card_layout.setSpacing(6)
+        card_layout.addWidget(self._create_section_header(title))
+        card_layout.addWidget(table)
+        self.section_cards.append(card)
+        return card
 
     def _build_matrix_table(self):
         table = QTableWidget()
@@ -520,12 +583,12 @@ class LogViewerWidget(QWidget):
         table.verticalHeader().setDefaultSectionSize(32)
         table.horizontalHeader().setFixedHeight(28)
         if self.is_dark_theme:
-            table_background = "#161b22"
-            gridline = "#21262d"
-            border = "#30363d"
-            text = "#c9d1d9"
-            header_background = "#0d1117"
-            header_text = "#8b949e"
+            table_background = "#202225"
+            gridline = "#2a2c2f"
+            border = "#34383d"
+            text = "#e1e3e6"
+            header_background = "#202225"
+            header_text = "#a4a8ae"
         else:
             table_background = "#ffffff"
             gridline = "#d8dee4"
@@ -538,8 +601,8 @@ class LogViewerWidget(QWidget):
             QTableWidget {
                 background-color: %s;
                 gridline-color: %s;
-                border: 1px solid %s;
-                border-radius: 6px;
+                border: none;
+                border-radius: 0px;
                 color: %s;
             }
             QHeaderView::section {
@@ -556,7 +619,7 @@ class LogViewerWidget(QWidget):
                 padding: 0px;
                 font-size: 11px;
             }
-        """ % (table_background, gridline, border, text, header_background, header_text, border, gridline))
+        """ % (table_background, gridline, text, header_background, header_text, border, gridline))
 
     def _update_table_heights(self):
         row_count = len(self.active_lpars)
@@ -636,10 +699,10 @@ class LogViewerWidget(QWidget):
             self._history_reload_force = False
             self.load_log_history(silent=True, force=force_reload)
 
-    def _on_history_error(self, err_msg):
+    def _on_history_error(self, _err_msg):
         self._history_loading = False
         self._hide_loading()
-        print(f"[LogViewerWidget] History load error: {err_msg}")
+        SYSTEM_LOGGER.error("System log history load failed")
 
     def _compute_log_scan_signature(self):
         signature = {}
@@ -1019,7 +1082,7 @@ class LogViewerWidget(QWidget):
         selected_date = self.date_combo.currentText() or date.today().strftime("%Y-%m-%d")
         default_filename = f"IBM_i_Summary_{selected_date}.xlsx"
 
-        file_path, _ = QFileDialog.getSaveFileName(
+        file_path, _ = get_save_file_name(
             self,
             "Export Summary Log",
             default_filename,

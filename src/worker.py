@@ -30,12 +30,16 @@ from config import (
     EXPECTED_WEB_APPS,
 )
 from ui.setcreds import load_email_alerts
+from excel_store import push_metrics_to_excel
+from system_logging import SYSTEM_LOGGER
 
 _LOG_WRITE_LOCK = threading.Lock()
 _LOG_MUTEX_NAME = "Local\\AS400QuantumSuite_DailyLogWrite"
 _LOG_MUTEX_WAIT_MS = 30000
 _LOG_QUEUE = queue.Queue()
 _LOGGER_THREAD = None
+_EXCEL_SYNCED_HOURS = {}
+_EXCEL_PENDING_HOURS = {}
 _ALERT_STATE_LOCK = threading.Lock()
 _LAST_ASP_ALERT_STATE = {}
 _LAST_ASP_SOUND_STATE = {"armed": False, "sent_at": 0.0}
@@ -44,6 +48,7 @@ _LAST_SERVER_STATUS = {}
 _SERVER_ALERTING_SERVERS = set()
 _PENDING_SERVER_STATUS_ALERTS = {}
 SERVER_STATUS_ALERT_DELAY_SECONDS = 3
+VPN_PING_TARGET_IP = "189.88.18.66"
 _ALERT_SOUND_STOP_EVENT = threading.Event()
 _ALERT_SOUND_PROCESSES = set()
 _ALERT_SOUND_PROCESS_LOCK = threading.Lock()
@@ -142,24 +147,41 @@ class MonthlyBackupFetchThread(QThread):
 
     HOST_NAME_QUERY = DailyBackupFetchThread.HOST_NAME_QUERY
     QUERY = """
-        WITH MONTH_START AS (
-            SELECT MIN(MESSAGE_TIMESTAMP) AS START_TIME
+        SELECT
+            MIN(CASE WHEN MESSAGE_ID = 'BRM1380' THEN MESSAGE_TIMESTAMP END) AS START_TIME,
+            MAX(CASE WHEN MESSAGE_ID IN ('BRM1049', 'BRM10A1') THEN MESSAGE_TIMESTAMP END) AS END_TIME,
+            TIMESTAMPDIFF(
+                2,
+                CHAR(
+                    MAX(CASE WHEN MESSAGE_ID IN ('BRM1049', 'BRM10A1') THEN MESSAGE_TIMESTAMP END)
+                    - MIN(CASE WHEN MESSAGE_ID = 'BRM1380' THEN MESSAGE_TIMESTAMP END)
+                )
+            ) AS DURATION_SECONDS,
+            MAX(CASE WHEN MESSAGE_ID = 'BRM10A1' THEN 1 ELSE 0 END) AS HAS_COMPLETION_ERRORS
+        FROM QUSRBRM.BRMS_LOG_INFO
+        WHERE MESSAGE_TEXT LIKE ?
+          AND MESSAGE_TIMESTAMP >= ?
+          AND MESSAGE_TIMESTAMP < ?
+          AND MESSAGE_ID IN ('BRM1380', 'BRM1049', 'BRM10A1')
+    """
+    RUNNING_QUERY = """
+        WITH LATEST_START AS (
+            SELECT MAX(MESSAGE_TIMESTAMP) AS START_TIME
             FROM QUSRBRM.BRMS_LOG_INFO
             WHERE MESSAGE_TEXT LIKE ?
               AND MESSAGE_ID = 'BRM1380'
-              AND MESSAGE_TIMESTAMP >= ?
-              AND MESSAGE_TIMESTAMP < ?
+              AND MESSAGE_TIMESTAMP <= CURRENT_TIMESTAMP
         )
         SELECT
-            ? AS JOB_NAME,
-            MONTH_START.START_TIME,
-            MIN(BRM_END.MESSAGE_TIMESTAMP) AS END_TIME
-        FROM MONTH_START
+            LATEST_START.START_TIME,
+            MIN(BRM_END.MESSAGE_TIMESTAMP) AS END_TIME,
+            MAX(CASE WHEN BRM_END.MESSAGE_ID = 'BRM10A1' THEN 1 ELSE 0 END) AS HAS_COMPLETION_ERRORS
+        FROM LATEST_START
         LEFT JOIN QUSRBRM.BRMS_LOG_INFO AS BRM_END
           ON BRM_END.MESSAGE_TEXT LIKE ?
-         AND BRM_END.MESSAGE_ID = 'BRM1049'
-         AND BRM_END.MESSAGE_TIMESTAMP >= MONTH_START.START_TIME
-        GROUP BY MONTH_START.START_TIME
+         AND BRM_END.MESSAGE_ID IN ('BRM1049', 'BRM10A1')
+         AND BRM_END.MESSAGE_TIMESTAMP >= LATEST_START.START_TIME
+        GROUP BY LATEST_START.START_TIME
     """
 
     def __init__(self, server_name, host, db, username, password, control_group_name, month_start, next_month):
@@ -191,15 +213,41 @@ class MonthlyBackupFetchThread(QThread):
                     f"%{self.control_group_name}%",
                     self.month_start,
                     self.next_month,
-                    self.control_group_name,
-                    f"%{self.control_group_name}%",
                 ),
             )
             columns = [column[0].lower() for column in cursor.description]
             row = cursor.fetchone()
             records = []
-            if row and row[1] is not None:
-                records.append(dict(zip(columns, row)))
+            if row and row[0] is not None:
+                record = dict(zip(columns, row))
+                record["job_name"] = self.control_group_name
+                records.append(record)
+
+            cursor.execute(
+                self.RUNNING_QUERY,
+                (
+                    f"%{self.control_group_name}%",
+                    f"%{self.control_group_name}%",
+                ),
+            )
+            columns = [column[0].lower() for column in cursor.description]
+            running_row = cursor.fetchone()
+            if running_row and running_row[0] is not None:
+                latest_record = dict(zip(columns, running_row))
+                latest_record["job_name"] = self.control_group_name
+                existing_index = next(
+                    (
+                        index
+                        for index, record in enumerate(records)
+                        if str(record.get("start_time")) == str(latest_record["start_time"])
+                    ),
+                    None,
+                )
+                if existing_index is None:
+                    records.append(latest_record)
+                else:
+                    records[existing_index]["end_time"] = latest_record["end_time"]
+
             self.data_ready.emit(self.server_name, records)
         except Exception as exc:
             self.error.emit(self.server_name, str(exc))
@@ -235,7 +283,7 @@ def _logger_worker():
                     time.sleep(0.25 * (attempt + 1))
 
             if result not in {"saved", "already_recorded"}:
-                print(f"[log_worker] Log persistence failed after retries: {result!r}")
+                SYSTEM_LOGGER.error("Log persistence failed after retries")
         finally:
             _LOG_QUEUE.task_done()
 
@@ -355,7 +403,7 @@ def _fetch_object_statistics_cached(cursor, host, db, username):
                 ORDER BY
                     CASE WHEN O.OBJSIZE IS NULL THEN 1 ELSE 0 END ASC,
                     O.OBJSIZE DESC
-                FETCH FIRST 5 ROWS ONLY
+                FETCH FIRST 10 ROWS ONLY
                 WITH UR
                 """
             )
@@ -658,7 +706,7 @@ def play_alert_sound(name):
     """Play one alert sound without changing the looping ASP alert state."""
     sound_path = _find_sound_path(name)
     if not sound_path:
-        print(f"Alert sound not found: {name}")
+        SYSTEM_LOGGER.warning("Alert sound asset is missing")
         return False
 
     try:
@@ -685,7 +733,7 @@ def play_server_down_alert_sound():
 
     sound_path = _find_sound_path("alert.wav")
     if not sound_path:
-        print("Alert sound not found: alert.wav")
+        SYSTEM_LOGGER.warning("Server-down alert sound asset is missing")
         return False
 
     try:
@@ -815,7 +863,7 @@ def _send_delayed_server_status_alert(server_name, error, timer):
             _PENDING_SERVER_STATUS_ALERTS.pop(server_name, None)
             return
 
-    if not has_vpn_ip():
+    if not has_vpn_connectivity():
         _clear_server_down_alert_state(server_name)
         return
 
@@ -873,9 +921,7 @@ def play_asp_alert_sound():
             wav_paths.append(found_path)
 
     if not wav_paths:
-        print(
-            f"Alert sound error: Expected at least 1 sound file, found {len(wav_paths)}."
-        )
+        SYSTEM_LOGGER.error("ASP alert sound assets are missing")
         return False
 
     try:
@@ -963,8 +1009,8 @@ def play_asp_alert_sound():
         thread.start()
         return True
 
-    except Exception as e:
-        print(f"Failed to play alert sounds: {e}")
+    except Exception:
+        SYSTEM_LOGGER.error("Failed to play ASP alert sounds")
         return False
 
 
@@ -1406,6 +1452,30 @@ def has_vpn_ip(prefix="10.212."):
         return False
 
 
+def has_vpn_connectivity():
+    """Return whether the VPN interface is up and its monitored route responds."""
+    if not has_vpn_ip():
+        return False
+
+    if sys.platform.startswith("win"):
+        command = ["ping", "-n", "1", "-w", "1200", VPN_PING_TARGET_IP]
+    else:
+        command = ["ping", "-c", "1", "-W", "2", VPN_PING_TARGET_IP]
+
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=3,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform.startswith("win") else 0,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return completed.returncode == 0
+
+
 def cleanup_old_logs(days_to_keep=30):
     """Delete canonical daily log files older than the retention period in all archives.
 
@@ -1681,6 +1751,14 @@ def _save_single_lpar_log(sys_info, server_configs=None):
     resolved_name = sys_info.get("host_name") or sys_info.get("server") or config_key
     server_name = resolved_name if str(resolved_name).strip() and not re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", str(resolved_name).strip()) else config_key
     server_name = str(server_name).strip() or config_key
+    excel_record = {
+        "timestamp": timestamp_str,
+        "config_key": str(config_key),
+        "lpar": server_name,
+        "host_name": str(sys_info.get("host_name") or "").strip(),
+        "cpu": sys_info.get("cpu", 0.0),
+        "asp": sys_info.get("asp", 0.0),
+    }
 
     issue_present = _has_server_issues(sys_info, configs)
     dedupe_seconds = int(load_email_alerts().get("log_dedupe_seconds", 60) or 60)
@@ -1696,6 +1774,7 @@ def _save_single_lpar_log(sys_info, server_configs=None):
             except ValueError:
                 last_dt = None
             if last_dt is not None and last_dt.strftime("%Y-%m-%d %H:00:00") == now.strftime("%Y-%m-%d %H:00:00"):
+                _sync_metrics_to_excel(excel_record)
                 _merge_and_remove_conflict_logs(filepath, date_str)
                 return "already_recorded"
 
@@ -1709,6 +1788,7 @@ def _save_single_lpar_log(sys_info, server_configs=None):
                 "subsystems_detail": last_record.get("subsystems_detail", []),
                 "services_down": last_record.get("services_down", "None"),
             }, now):
+                _sync_metrics_to_excel(excel_record)
                 _merge_and_remove_conflict_logs(filepath, date_str)
                 return "already_recorded"
     except json.JSONDecodeError:
@@ -1778,6 +1858,7 @@ def _save_single_lpar_log(sys_info, server_configs=None):
         "config_key": str(config_key),
         "lpar": server_name,
         "server": server_name,
+        "host_name": str(sys_info.get("host_name") or "").strip(),
         "ip": ip_addr,
         "cpu": sys_info.get("cpu", 0.0),
         "asp": sys_info.get("asp", 0.0),
@@ -1799,6 +1880,7 @@ def _save_single_lpar_log(sys_info, server_configs=None):
                     continue
                 for rec in entry.get("records", []):
                     if _is_same_dedupe_window_record(rec, server_name, dedupe_seconds, record, now):
+                        _sync_metrics_to_excel(record)
                         _merge_and_remove_conflict_logs(filepath, date_str)
                         return "already_recorded"
     except json.JSONDecodeError:
@@ -1816,9 +1898,54 @@ def _save_single_lpar_log(sys_info, server_configs=None):
     # OneDrive-safe atomic append; the caller holds the process-wide log lock.
     if not safe_json_append_and_save(filepath, entry):
         return "file_busy"
+    _sync_metrics_to_excel(record)
     _merge_and_remove_conflict_logs(filepath, date_str)
     cleanup_old_logs(days_to_keep=30)
     return "saved"
+
+
+def _sync_metrics_to_excel(record):
+    server_key = str(record.get("config_key") or "").strip()
+    timestamp = str(record.get("timestamp") or "")
+    hour_key = timestamp[:13]
+    if not server_key or len(hour_key) != 13:
+        return
+    if _EXCEL_SYNCED_HOURS.get(hour_key):
+        return
+
+    pending = _EXCEL_PENDING_HOURS.setdefault(hour_key, {})
+    pending[server_key] = record
+    expected_servers = {str(key).strip() for key in SERVER_CONFIGS}
+    if expected_servers and not expected_servers.issubset(pending):
+        return
+
+    try:
+        errors = push_metrics_to_excel(list(pending.values()))
+        for error in errors:
+            SYSTEM_LOGGER.error("%s", error)
+        if not any(not error.startswith(("ASP Excel ", "CPU Excel ")) for error in errors):
+            recorded_at = next(iter(pending.values())).get("timestamp", hour_key)
+            failed_metrics = {
+                metric
+                for metric in ("ASP", "CPU")
+                if any(error.startswith(f"{metric} Excel ") for error in errors)
+            }
+            for metric in ("ASP", "CPU"):
+                if metric not in failed_metrics:
+                    SYSTEM_LOGGER.info(
+                        "HOURLY EXCEL SUCCESS: BY - %s %s.xlsx updated for %s server(s), hour %s",
+                        metric,
+                        hour_key[:4],
+                        len(pending),
+                        recorded_at[:13],
+                    )
+    except Exception:
+        SYSTEM_LOGGER.exception(
+            "Local LPAR history was saved, but the hourly Excel batch update failed"
+        )
+    finally:
+        _EXCEL_SYNCED_HOURS[hour_key] = True
+        _EXCEL_PENDING_HOURS.pop(hour_key, None)
 
 
 def _persist_and_emit(runnable, result):
@@ -1829,9 +1956,10 @@ def _persist_and_emit(runnable, result):
             raise
     try:
         queue_log_persistence(result, SERVER_CONFIGS)
-    except Exception as exc:
-        print(
-            f"[{runnable.server}] Live result emitted, but log persistence failed: {exc}"
+    except Exception:
+        SYSTEM_LOGGER.error(
+            "LPAR %s result emitted but log persistence failed",
+            runnable.server,
         )
         return
 
@@ -1840,6 +1968,68 @@ class LparWorkerSignals(QObject):
     """Signals for communicating LPAR query execution results safely to GUI widgets."""
     server_fetched = pyqtSignal(dict)
     server_failed = pyqtSignal(dict)
+
+
+class SystemDetailsSignals(QObject):
+    details_ready = pyqtSignal(dict)
+
+
+class SystemDetailsRunnable(QRunnable):
+    """Fetch the system identity and capacity fields for a selected IBM i server."""
+
+    QUERY = """
+        SELECT
+            HOST_NAME,
+            PARTITION_NAME,
+            MACHINE_TYPE,
+            MACHINE_MODEL,
+            MACHINE_SERIAL_NUMBER,
+            SYSTEM_ASP_STORAGE,
+            CURRENT_CPU_CAPACITY,
+            CPU_SHARING_ATTRIBUTE
+        FROM TABLE(QSYS2.SYSTEM_STATUS())
+    """
+    FIELD_NAMES = (
+        "host_name",
+        "partition_name",
+        "machine_type",
+        "machine_model",
+        "machine_serial_number",
+        "system_asp_storage",
+        "current_cpu_capacity",
+        "cpu_sharing_attribute",
+    )
+
+    def __init__(self, server, cfg, username, password, signal_parent=None):
+        super().__init__()
+        self.server = server
+        self.cfg = cfg
+        self.username = username
+        self.password = password
+        self.signals = SystemDetailsSignals(signal_parent)
+
+    def run(self):
+        host = self.cfg.get("host", "") if isinstance(self.cfg, dict) else str(self.cfg)
+        db = self.cfg.get("db", "*LOCAL") if isinstance(self.cfg, dict) else "*LOCAL"
+        result = {"config_key": self.server, "system_details": {}, "error": ""}
+        conn = None
+        try:
+            conn = _new_connection(host, db, self.username, self.password)
+            cursor = conn.cursor()
+            cursor.execute(self.QUERY)
+            row = cursor.fetchone()
+            if row is None:
+                raise RuntimeError("IBM i returned no system status data.")
+            result["system_details"] = dict(zip(self.FIELD_NAMES, row))
+        except Exception as exc:
+            result["error"] = str(exc)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        self.signals.details_ready.emit(result)
 
 
 class ObjectStatisticsSignals(QObject):
