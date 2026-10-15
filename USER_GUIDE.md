@@ -112,4 +112,8 @@ After credential validation, open **Backup Management**. Select a system and mon
 For problems that remain unresolved, provide your administrator with the system name, approximate time, and relevant message from **System Logs**. Do not send passwords or settings backups through an unapproved channel.
 
 
+<<<<<<< HEAD
 [🏠 Back to README](./README.md)
+=======
+[🏠 Back to README](./)
+>>>>>>> dc5c63e (Changes on UI, Addtional monitoring tracker -Monthlu backup, Excel update ASP/CPU)

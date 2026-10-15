@@ -148,4 +148,8 @@ The application version is **5.6.0**. Startup checks enforce the configured buil
 
 ---
 
+<<<<<<< HEAD
 [📖 Read the User Guide](./USER_GUIDE.md)
+=======
+[📖 Read the User Guide](./USER_GUIDE)
+>>>>>>> dc5c63e (Changes on UI, Addtional monitoring tracker -Monthlu backup, Excel update ASP/CPU)
