@@ -1,6 +1,6 @@
 # AS400 Quantum Suite
 
-**AS400 Quantum Suite 5.5.0** is a Windows desktop monitoring and operations dashboard for IBM i (AS/400) environments. It connects to configured IBM i systems through DB2/ODBC and presents live LPAR status, capacity metrics, service checks, backup history, and monthly reports in a PyQt6 application.
+**AS400 Quantum Suite 5.6.0** is a Windows desktop monitoring and operations dashboard for IBM i (AS/400) environments. It connects to configured IBM i systems through DB2/ODBC and presents live LPAR status, capacity metrics, service checks, backup history, and monthly reports in a PyQt6 application.
 
 ## Features
 
@@ -144,8 +144,8 @@ tests/                   Pytest regression tests
 
 ## Version Information
 
-The application version is **5.5.0**. Startup checks enforce the configured build expiration and compare the installed version with the published minimum version. Published version metadata is checked using the URL configured in `src/config.py`.
+The application version is **5.6.0**. Startup checks enforce the configured build expiration and compare the installed version with the published minimum version. Published version metadata is checked using the URL configured in `src/config.py`.
 
 ---
 
-{% include USER_GUIDE.md %}
+[📖 Read the User Guide](./USER_GUIDE)
