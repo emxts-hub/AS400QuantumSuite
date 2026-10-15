@@ -110,3 +110,6 @@ After credential validation, open **Backup Management**. Select a system and mon
 | The app says an update is required or the build has expired | Contact the person who supplied the installer for a supported build. |
 
 For problems that remain unresolved, provide your administrator with the system name, approximate time, and relevant message from **System Logs**. Do not send passwords or settings backups through an unapproved channel.
+
+
+[🏠 Back to README](./)
