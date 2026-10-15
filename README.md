@@ -148,4 +148,4 @@ The application version is **5.6.0**. Startup checks enforce the configured buil
 
 ---
 
-[📖 Read the User Guide](./USER_GUIDE)
+[📖 Read the User Guide](./USER_GUIDE.md)
