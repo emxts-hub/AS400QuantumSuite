@@ -1922,23 +1922,48 @@ def _sync_metrics_to_excel(record):
     try:
         errors = push_metrics_to_excel(list(pending.values()))
         for error in errors:
-            SYSTEM_LOGGER.error("%s", error)
+            if " Excel batch skipped: already has log at " in error or " Excel batch updated: " in error:
+                SYSTEM_LOGGER.info("%s", error)
+            else:
+                SYSTEM_LOGGER.error("%s", error)
         if not any(not error.startswith(("ASP Excel ", "CPU Excel ")) for error in errors):
             recorded_at = next(iter(pending.values())).get("timestamp", hour_key)
             failed_metrics = {
                 metric
                 for metric in ("ASP", "CPU")
-                if any(error.startswith(f"{metric} Excel ") for error in errors)
+                if any(
+                    error.startswith(f"{metric} Excel ")
+                    and " Excel batch skipped: already has log at " not in error
+                    and " Excel batch updated: " not in error
+                    for error in errors
+                )
+            }
+            updated_counts = {}
+            for metric in ("ASP", "CPU"):
+                for error in errors:
+                    prefix = f"{metric} Excel batch updated: "
+                    if error.startswith(prefix):
+                        updated_counts[metric] = error[len(prefix):].split(" ", 1)[0]
+                        break
+            skipped_metrics = {
+                metric
+                for metric in ("ASP", "CPU")
+                if any(
+                    error.startswith(f"{metric} Excel batch skipped: already has log at ")
+                    for error in errors
+                )
             }
             for metric in ("ASP", "CPU"):
-                if metric not in failed_metrics:
-                    SYSTEM_LOGGER.info(
-                        "HOURLY EXCEL SUCCESS: BY - %s %s.xlsx updated for %s server(s), hour %s",
-                        metric,
-                        hour_key[:4],
-                        len(pending),
-                        recorded_at[:13],
-                    )
+                if metric in skipped_metrics or metric in failed_metrics:
+                    if metric not in updated_counts:
+                        continue
+                SYSTEM_LOGGER.info(
+                    "HOURLY EXCEL SUCCESS: BY - %s %s.xlsx updated for %s server(s), hour %s",
+                    metric,
+                    hour_key[:4],
+                    updated_counts.get(metric, str(len(pending))),
+                    recorded_at[:13],
+                )
     except Exception:
         SYSTEM_LOGGER.exception(
             "Local LPAR history was saved, but the hourly Excel batch update failed"

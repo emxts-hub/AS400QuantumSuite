@@ -128,6 +128,8 @@ def _update_workbook_batch(path, metric, records):
         raise PermissionError(f"Workbook is open in Excel: {path}")
 
     workbook = load_workbook(path)
+    updated_count = 0
+    skipped_records = []
     try:
         for record in records:
             sheet_name = record["sheet_name"]
@@ -156,13 +158,23 @@ def _update_workbook_batch(path, metric, records):
                     f"{recorded_at.hour:02d}:00 in worksheet {sheet_name!r}"
                 )
 
+            if cell.value is not None and str(cell.value).strip():
+                skipped_records.append(
+                    f"{sheet_name} {recorded_at.date().isoformat()} "
+                    f"{recorded_at.hour:02d}:00"
+                )
+                continue
+
             cell.value = record["values"][metric] / 100
             if cell.number_format == "General":
                 cell.number_format = "0.00%"
+            updated_count += 1
 
-        workbook.save(path)
+        if updated_count:
+            workbook.save(path)
     finally:
         workbook.close()
+    return updated_count, skipped_records
 
 
 def push_metrics_to_excel(records):
@@ -190,14 +202,23 @@ def push_metrics_to_excel(records):
         return errors + ["Excel batch must contain readings from one hour"]
     year = years.pop()
 
-    year_directory = os.path.join(config.ONEDRIVE_SHAREPOINT_PATH, year)
     for metric in ("asp", "cpu"):
-        workbook_path = os.path.join(
-            year_directory,
-            f"BY - {metric.upper()} {year}.xlsx",
-        )
+        workbook_path = config.get_excel_workbook_path(metric, year)
         try:
-            _update_workbook_batch(workbook_path, metric, parsed_records)
+            updated_count, skipped_records = _update_workbook_batch(
+                workbook_path,
+                metric,
+                parsed_records,
+            )
+            if updated_count and skipped_records:
+                errors.append(
+                    f"{metric.upper()} Excel batch updated: {updated_count} server(s)"
+                )
+            if skipped_records:
+                errors.extend(
+                    f"{metric.upper()} Excel batch skipped: already has log at {slot}"
+                    for slot in skipped_records
+                )
         except (
             KeyError,
             OSError,

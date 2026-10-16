@@ -10,12 +10,12 @@ import time
 from typing import cast
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
-from config import APP_VERSION, APP_NAME
+from config import APP_VERSION, APP_NAME, parse_version
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from PyQt6.QtCore import Qt, QTimer, QThread, QThreadPool, QRunnable, QObject, QPointF, QPropertyAnimation, QAbstractAnimation, pyqtProperty, QSize, QByteArray, pyqtSignal, QEvent
-from PyQt6.QtGui import QColor, QFont, QCursor, QIcon, QPixmap, QPainter, QPen, QPolygonF, QBrush, QMouseEvent
+from PyQt6.QtCore import Qt, QTimer, QThread, QThreadPool, QRunnable, QObject, QPointF, QPropertyAnimation, QAbstractAnimation, pyqtProperty, QSize, QByteArray, pyqtSignal, QEvent, QUrl
+from PyQt6.QtGui import QColor, QFont, QCursor, QIcon, QPixmap, QPainter, QPen, QPolygonF, QBrush, QMouseEvent, QDesktopServices
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
@@ -50,7 +50,17 @@ from dialogs import (
     show_information_dialog, show_warning_dialog,
 )
 from version_worker import VersionCheckWorker
-from config import SERVER_CONFIGS, EXPECTED_SUBSYSTEMS, EXPECTED_PORTS, EXPECTED_WEB_APPS, ONEDRIVE_SHAREPOINT_PATH, get_resource_path, get_config_path
+from config import (
+    ASP_WORKBOOK_PATH,
+    CPU_WORKBOOK_PATH,
+    SERVER_CONFIGS,
+    EXPECTED_SUBSYSTEMS,
+    EXPECTED_PORTS,
+    EXPECTED_WEB_APPS,
+    ONEDRIVE_SHAREPOINT_PATH,
+    get_resource_path,
+    get_config_path,
+)
 from ui.setcreds import (
     get_email_password,
     get_ibmi_password,
@@ -437,8 +447,8 @@ class SystemDetailsDialog(FramelessDialog):
     def __init__(self, server_name, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"{server_name} - System Details")
-        self.resize(830, 740)
-        self.setMinimumSize(620, 560)
+        self.resize(415, 370)
+        self.setMinimumSize(310, 280)
 
         app = QApplication.instance()
         is_dark = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
@@ -453,17 +463,17 @@ class SystemDetailsDialog(FramelessDialog):
             QFrame#systemDetailsContent {{ background-color: {surface}; }}
             QLabel#systemDetailsStatus {{
                 color: {muted};
-                font-size: 16.5pt;
+                font-size: 8.25pt;
                 background: transparent;
             }}
             QLabel#systemDetailsFieldLabel {{
                 color: {muted};
-                font-size: 16.5pt;
+                font-size: 8.25pt;
                 background: transparent;
             }}
             QLabel#systemDetailsFieldValue {{
                 color: {text};
-                font-size: 16.5pt;
+                font-size: 8.25pt;
                 font-weight: 600;
                 background: transparent;
             }}
@@ -476,8 +486,8 @@ class SystemDetailsDialog(FramelessDialog):
                 color: {text};
                 border: 1px solid {border};
                 border-radius: 6px;
-                padding: 10px 26px;
-                font-size: 14px;
+                padding: 5px 13px;
+                font-size: 7px;
                 font-weight: 600;
             }}
             QPushButton#systemDetailsCloseButton:hover {{
@@ -491,8 +501,8 @@ class SystemDetailsDialog(FramelessDialog):
         content = QFrame(self)
         content.setObjectName("systemDetailsContent")
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(36, 34, 36, 32)
-        content_layout.setSpacing(22)
+        content_layout.setContentsMargins(18, 17, 18, 16)
+        content_layout.setSpacing(11)
 
         self.status_label = QLabel(f"Loading system details for {server_name}...")
         self.status_label.setObjectName("systemDetailsStatus")
@@ -503,8 +513,8 @@ class SystemDetailsDialog(FramelessDialog):
         self.details_widget.setStyleSheet("background: transparent;")
         details_layout = QFormLayout(self.details_widget)
         details_layout.setContentsMargins(0, 0, 0, 0)
-        details_layout.setHorizontalSpacing(42)
-        details_layout.setVerticalSpacing(22)
+        details_layout.setHorizontalSpacing(21)
+        details_layout.setVerticalSpacing(11)
         details_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         details_layout.setFormAlignment(Qt.AlignmentFlag.AlignTop)
         self.value_labels = {}
@@ -526,12 +536,12 @@ class SystemDetailsDialog(FramelessDialog):
         footer = QFrame(self)
         footer.setObjectName("systemDetailsFooter")
         footer_layout = QHBoxLayout(footer)
-        footer_layout.setContentsMargins(28, 18, 36, 18)
+        footer_layout.setContentsMargins(14, 9, 18, 9)
         footer_layout.addStretch(1)
         close_button = QPushButton("Close")
         close_button.setObjectName("systemDetailsCloseButton")
         close_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_button.setMinimumSize(126, 52)
+        close_button.setMinimumSize(63, 26)
         close_button.clicked.connect(self.accept)
         footer_layout.addWidget(close_button)
         layout.addWidget(footer)
@@ -546,16 +556,16 @@ class SystemDetailsDialog(FramelessDialog):
         close_hover_text = "#f85149" if is_dark else "#cf222e"
         title_bar = self._dialog_title_bar
         if title_bar is not None:
-            title_bar.setFixedHeight(96)
+            title_bar.setFixedHeight(48)
             title_label = self._dialog_title_label
             if title_label is not None:
                 title_label.setStyleSheet(
                     f"color: {title_text}; background: transparent; border: none; "
-                    "font-family: 'Segoe UI', sans-serif; font-size: 16.5pt; font-weight: 600;"
+                    "font-family: 'Segoe UI', sans-serif; font-size: 8.25pt; font-weight: 600;"
                 )
             close_button = title_bar.findChild(QPushButton, "dialogCloseButton")
             if close_button is not None:
-                close_button.setFixedSize(38, 38)
+                close_button.setFixedSize(19, 19)
                 close_button.setStyleSheet(f"""
                     QPushButton {{
                         background: transparent;
@@ -563,7 +573,7 @@ class SystemDetailsDialog(FramelessDialog):
                         border: none;
                         border-radius: 6px;
                         padding: 0;
-                        font-size: 28px;
+                        font-size: 14px;
                         font-weight: 400;
                     }}
                     QPushButton:hover {{
@@ -1694,11 +1704,14 @@ class GatewayPingRunnable(QRunnable):
 
 class IBMiDashboard(QMainWindow):
     _version_worker: VersionCheckWorker | None
+    _settings_version_worker: VersionCheckWorker | None
 
     def __init__(self, version_str: str = APP_VERSION):
         super().__init__()
         self.system_log_handler = SYSTEM_LOG_HANDLER
         self._version_worker = None
+        self._settings_version_worker = None
+        self._update_download_url = ""
         self.version_str = version_str
         self.setWindowTitle(f"{APP_NAME} - v{version_str}")
         self.setGeometry(100, 100, 900, 600)
@@ -2039,6 +2052,8 @@ class IBMiDashboard(QMainWindow):
             "remember": self.remember_creds_checkbox.isChecked(),
             "lpar_rows": table_values(self.lpar_table),
             "logs_root": self.logs_root_input.text(),
+            "asp_workbook_path": self.asp_workbook_input.text(),
+            "cpu_workbook_path": self.cpu_workbook_input.text(),
             "smtp_enabled": self.smtp_enabled.isChecked(),
             "smtp_server": self.smtp_server_input.text(),
             "smtp_port": self.smtp_port_input.text(),
@@ -2059,6 +2074,8 @@ class IBMiDashboard(QMainWindow):
         self.pass_input.setText(snapshot["password"])
         self.remember_creds_checkbox.setChecked(snapshot["remember"])
         self.logs_root_input.setText(snapshot["logs_root"])
+        self.asp_workbook_input.setText(snapshot["asp_workbook_path"])
+        self.cpu_workbook_input.setText(snapshot["cpu_workbook_path"])
         self.smtp_enabled.setChecked(snapshot["smtp_enabled"])
         self.smtp_server_input.setText(snapshot["smtp_server"])
         self.smtp_port_input.setText(snapshot["smtp_port"])
@@ -2262,7 +2279,7 @@ class IBMiDashboard(QMainWindow):
         self.settings_tab_icon_files = ("Cred.svg", "smtp.svg", "configure.svg", "BnR.svg")
         tab_pages = (
             (self.credentials_page, "Credentials"),
-            (self.smtp_page, "SMTP Config"),
+            (self.smtp_page, "Email & Alerts"),
             (self.lpar_page, "LPAR Configuration"),
             (self.storage_page, "Storage && System"),
         )
@@ -2434,6 +2451,45 @@ class IBMiDashboard(QMainWindow):
         self.browse_logs_btn.clicked.connect(self._browse_logs_root)
         storage_layout.addWidget(self.browse_logs_btn, 1, 1)
 
+        workbook_help = QLabel(
+            "Optional: choose workbooks individually. Leave blank to use the standard "
+            "ASP/CPU workbook in the log root's year folder."
+        )
+        workbook_help.setObjectName("settingsMutedText")
+        storage_layout.addWidget(workbook_help, 2, 0, 1, 2)
+
+        self.asp_workbook_input = QLineEdit(ASP_WORKBOOK_PATH)
+        self.asp_workbook_input.setObjectName("settingsInput")
+        self.asp_workbook_input.setMinimumHeight(38)
+        self.asp_workbook_input.setPlaceholderText("Choose ASP.xlsx")
+        asp_workbook_label = QLabel("ASP Workbook (ASP.xlsx)")
+        asp_workbook_label.setObjectName("settingsFieldLabel")
+        storage_layout.addWidget(asp_workbook_label, 3, 0, 1, 2)
+        storage_layout.addWidget(self.asp_workbook_input, 4, 0)
+        self.browse_asp_workbook_btn = QPushButton("Browse...")
+        self.browse_asp_workbook_btn.setObjectName("settingsSecondaryButton")
+        self.browse_asp_workbook_btn.setMinimumHeight(38)
+        self.browse_asp_workbook_btn.clicked.connect(
+            lambda: self._browse_excel_workbook("asp")
+        )
+        storage_layout.addWidget(self.browse_asp_workbook_btn, 4, 1)
+
+        self.cpu_workbook_input = QLineEdit(CPU_WORKBOOK_PATH)
+        self.cpu_workbook_input.setObjectName("settingsInput")
+        self.cpu_workbook_input.setMinimumHeight(38)
+        self.cpu_workbook_input.setPlaceholderText("Choose CPU.xlsx")
+        cpu_workbook_label = QLabel("CPU Workbook (CPU.xlsx)")
+        cpu_workbook_label.setObjectName("settingsFieldLabel")
+        storage_layout.addWidget(cpu_workbook_label, 5, 0, 1, 2)
+        storage_layout.addWidget(self.cpu_workbook_input, 6, 0)
+        self.browse_cpu_workbook_btn = QPushButton("Browse...")
+        self.browse_cpu_workbook_btn.setObjectName("settingsSecondaryButton")
+        self.browse_cpu_workbook_btn.setMinimumHeight(38)
+        self.browse_cpu_workbook_btn.clicked.connect(
+            lambda: self._browse_excel_workbook("cpu")
+        )
+        storage_layout.addWidget(self.browse_cpu_workbook_btn, 6, 1)
+
         smtp_tab = QGroupBox("SMTP / Mail Configuration")
         smtp_tab.setObjectName("settingsCard")
         smtp_layout = QVBoxLayout(smtp_tab)
@@ -2516,8 +2572,9 @@ class IBMiDashboard(QMainWindow):
 
         system_tab = QGroupBox("System")
         system_tab.setObjectName("settingsCard")
-        system_layout = QHBoxLayout(system_tab)
+        system_layout = QVBoxLayout(system_tab)
         system_layout.setContentsMargins(18, 16, 18, 16)
+        system_actions_layout = QHBoxLayout()
         system_copy = QVBoxLayout()
         system_title = QLabel("System Backup & Restore")
         system_title.setObjectName("settingsSectionTitle")
@@ -2525,21 +2582,52 @@ class IBMiDashboard(QMainWindow):
         system_description.setObjectName("settingsMutedText")
         system_copy.addWidget(system_title)
         system_copy.addWidget(system_description)
-        system_layout.addLayout(system_copy)
-        system_layout.addStretch()
+        system_actions_layout.addLayout(system_copy)
+        system_actions_layout.addStretch()
 
         self.backup_settings_btn = QPushButton("Backup")
         self.backup_settings_btn.setText("Backup Configuration")
         self.backup_settings_btn.setFixedHeight(35)
         self.backup_settings_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.backup_settings_btn.clicked.connect(self.backup_settings)
-        system_layout.addWidget(self.backup_settings_btn)
+        system_actions_layout.addWidget(self.backup_settings_btn)
 
         self.restore_settings_btn = QPushButton("Restore")
         self.restore_settings_btn.setFixedHeight(35)
         self.restore_settings_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.restore_settings_btn.clicked.connect(self.restore_settings)
-        system_layout.addWidget(self.restore_settings_btn)
+        system_actions_layout.addWidget(self.restore_settings_btn)
+        system_layout.addLayout(system_actions_layout)
+
+        update_row = QHBoxLayout()
+        update_copy = QVBoxLayout()
+        update_title = QLabel("Application Updates")
+        update_title.setObjectName("settingsSectionTitle")
+        update_description = QLabel("Check whether a newer version of the application is available.")
+        update_description.setObjectName("settingsMutedText")
+        self.update_status_label = QLabel(f"Current version: v{self.version_str}")
+        self.update_status_label.setObjectName("settingsMutedText")
+        self.update_status_label.setWordWrap(True)
+        update_copy.addWidget(update_title)
+        update_copy.addWidget(update_description)
+        update_copy.addWidget(self.update_status_label)
+        update_row.addLayout(update_copy, stretch=1)
+
+        self.check_updates_btn = QPushButton("Check for Updates")
+        self.check_updates_btn.setObjectName("settingsSecondaryButton")
+        self.check_updates_btn.setFixedHeight(35)
+        self.check_updates_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.check_updates_btn.clicked.connect(self.check_for_updates)
+        update_row.addWidget(self.check_updates_btn)
+
+        self.download_update_btn = QPushButton("Download Update")
+        self.download_update_btn.setObjectName("settingsPrimaryButton")
+        self.download_update_btn.setFixedHeight(35)
+        self.download_update_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.download_update_btn.clicked.connect(self.open_update_download)
+        self.download_update_btn.setVisible(False)
+        update_row.addWidget(self.download_update_btn)
+        system_layout.addLayout(update_row)
         self.storage_page_layout.addWidget(system_tab)
         self.storage_page_layout.addStretch(1)
 
@@ -2556,6 +2644,10 @@ class IBMiDashboard(QMainWindow):
             self.remove_lpar_btn,
             self.logs_root_input,
             self.browse_logs_btn,
+            self.asp_workbook_input,
+            self.browse_asp_workbook_btn,
+            self.cpu_workbook_input,
+            self.browse_cpu_workbook_btn,
             self.smtp_enabled,
             self.smtp_server_input,
             self.smtp_port_input,
@@ -2907,6 +2999,84 @@ class IBMiDashboard(QMainWindow):
         if selected:
             self.logs_root_input.setText(selected)
 
+    def _browse_excel_workbook(self, metric):
+        field = self.asp_workbook_input if metric == "asp" else self.cpu_workbook_input
+        current_path = field.text().strip()
+        initial_directory = (
+            os.path.dirname(current_path)
+            if os.path.splitext(current_path)[1]
+            else current_path
+        ) or self.logs_root_input.text().strip()
+        selected_path, _ = get_open_file_name(
+            self,
+            f"Select {metric.upper()} Excel workbook",
+            initial_directory,
+            f"{metric.upper()} Workbooks (BY - {metric.upper()} *.xlsx);;Excel Workbooks (*.xlsx)",
+        )
+        if selected_path:
+            field.setText(selected_path)
+
+    def check_for_updates(self):
+        if self._settings_version_worker and self._settings_version_worker.isRunning():
+            return
+
+        self.check_updates_btn.setEnabled(False)
+        self.download_update_btn.setVisible(False)
+        self._update_download_url = ""
+        self.update_status_label.setText(f"Checking for updates... (current version: v{self.version_str})")
+
+        self._settings_version_worker = VersionCheckWorker()
+        self._settings_version_worker.version_checked.connect(
+            self._handle_settings_version_check
+        )
+        self._settings_version_worker.finished.connect(
+            self._finish_settings_version_check
+        )
+        self._settings_version_worker.start()
+
+    def _finish_settings_version_check(self):
+        self.check_updates_btn.setEnabled(True)
+
+    def _handle_settings_version_check(self, success, _min_version, latest_version, update_url, error):
+        if not success:
+            self.update_status_label.setText(f"Could not check for updates: {error}")
+            SYSTEM_LOGGER.warning("Settings update check failed: %s", error)
+            return
+
+        current_version = parse_version(self.version_str)
+        published_version = parse_version(latest_version)
+        if published_version > current_version:
+            self._update_download_url = update_url
+            self.update_status_label.setText(
+                f"Update available: v{latest_version} (installed: v{self.version_str})"
+            )
+            self.download_update_btn.setVisible(True)
+            SYSTEM_LOGGER.info(
+                "Application update available: v%s (installed: v%s)",
+                latest_version,
+                self.version_str,
+            )
+            return
+
+        self.update_status_label.setText(
+            f"You're up to date (v{self.version_str}). Latest version: v{latest_version}."
+        )
+        SYSTEM_LOGGER.info("Application is up to date at v%s", self.version_str)
+
+    def open_update_download(self):
+        if not self._update_download_url:
+            return
+        if not QDesktopServices.openUrl(QUrl(self._update_download_url)):
+            SYSTEM_LOGGER.error(
+                "Could not open application update URL: %s",
+                self._update_download_url,
+            )
+            show_warning_dialog(
+                self,
+                "Unable to Open Download Page",
+                "The update page could not be opened. Please try again later.",
+            )
+
     def backup_settings(self):
         target_path, _ = get_save_file_name(
             self,
@@ -2943,6 +3113,8 @@ class IBMiDashboard(QMainWindow):
                 "password": self.pass_input.text(),
             }
             payload["LOGS_ROOT"] = self.logs_root_input.text().strip()
+            payload["ASP_WORKBOOK_PATH"] = self.asp_workbook_input.text().strip()
+            payload["CPU_WORKBOOK_PATH"] = self.cpu_workbook_input.text().strip()
             save_settings_backup(target_path, payload)
         except (OSError, TypeError, ValueError) as exc:
             SYSTEM_LOGGER.error("Settings backup failed")
@@ -2968,6 +3140,8 @@ class IBMiDashboard(QMainWindow):
             self.pass_input.setText(str(login_credentials.get("password", "")))
             self.remember_creds_checkbox.setChecked(bool(login_credentials.get("remember", False)))
             self.logs_root_input.setText(str(payload.get("LOGS_ROOT", ONEDRIVE_SHAREPOINT_PATH)))
+            self.asp_workbook_input.setText(str(payload.get("ASP_WORKBOOK_PATH", "")))
+            self.cpu_workbook_input.setText(str(payload.get("CPU_WORKBOOK_PATH", "")))
             self.smtp_enabled.setChecked(bool(email_alerts.get("enabled", False)))
             self.smtp_server_input.setText(str(email_alerts.get("smtp_server", "")))
             self.smtp_port_input.setText(str(email_alerts.get("port", 587)))
@@ -3249,6 +3423,8 @@ class IBMiDashboard(QMainWindow):
             email_alerts=email_alerts,
             login_credentials={"remember": remember_credentials, "username": login_username},
             log_root=logs_root,
+            asp_workbook_path=self.asp_workbook_input.text().strip(),
+            cpu_workbook_path=self.cpu_workbook_input.text().strip(),
         ):
             SYSTEM_LOGGER.error("Settings save failed")
             self.status_label.setText("Error: Save failed. Please try again.")

@@ -215,6 +215,8 @@ def save_all_configs(
     email_alerts=None,
     login_credentials=None,
     log_root=None,
+    asp_workbook_path=None,
+    cpu_workbook_path=None,
 ):
     """Save server, alert, and login preferences into config.json."""
     config = _config_module()
@@ -274,7 +276,39 @@ def save_all_configs(
         )
         data["LOGS_ROOT"] = normalized_log_root
 
+    normalized_asp_workbook_path = None
+    if asp_workbook_path is not None:
+        raw_path = str(asp_workbook_path).strip()
+        normalized_asp_workbook_path = (
+            os.path.abspath(os.path.expandvars(os.path.expanduser(raw_path)))
+            if raw_path
+            else ""
+        )
+        data["ASP_WORKBOOK_PATH"] = normalized_asp_workbook_path
+
+    normalized_cpu_workbook_path = None
+    if cpu_workbook_path is not None:
+        raw_path = str(cpu_workbook_path).strip()
+        normalized_cpu_workbook_path = (
+            os.path.abspath(os.path.expandvars(os.path.expanduser(raw_path)))
+            if raw_path
+            else ""
+        )
+        data["CPU_WORKBOOK_PATH"] = normalized_cpu_workbook_path
+
     saved = config.safe_json_save(config_path, data)
     if saved and normalized_log_root:
         config.set_logs_root(normalized_log_root)
+    if saved and (
+        normalized_asp_workbook_path is not None
+        or normalized_cpu_workbook_path is not None
+    ):
+        config.set_excel_workbook_paths(
+            normalized_asp_workbook_path
+            if normalized_asp_workbook_path is not None
+            else config.ASP_WORKBOOK_PATH,
+            normalized_cpu_workbook_path
+            if normalized_cpu_workbook_path is not None
+            else config.CPU_WORKBOOK_PATH,
+        )
     return saved

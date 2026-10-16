@@ -9,8 +9,8 @@
 - **Server status alerts:** Server-down email notifications are delayed by three seconds and suppressed if the VPN disconnects or the server recovers during that delay.
 - **Logs & Analytics:** Browse persisted monitoring history and monthly CPU/ASP trends. Log history is refreshed when this page is visible, avoiding background OneDrive log-folder scans on the dashboard. Export monthly reports to Excel and generate a report for the previous month.
 - **Backup Management:** Review daily, weekly, monthly, and journal backup history in two panels by server and month, including duration, start/end times, and daily, weekly, and monthly averages.
-- **Settings & Credentials:** Configure IBM i connections, expected subsystems and ports, email/SMTP alerts, refresh preferences, and the logs folder. Validate credentials, send a test email, and back up or restore application settings.
-- **Startup checks:** Check the configured expiration date and compare the installed version with the published minimum supported version.
+- **Settings & Credentials:** Configure IBM i connections, expected subsystems and ports, email/SMTP alerts, refresh preferences, log and Excel workbook paths. Validate credentials, send a test email, check for application updates, and back up or restore settings.
+- **Startup checks:** Check the configured expiration date and compare the installed version with the published minimum supported version. A manual update check is available in **Storage & System**.
 
 ## Screenshots
 
@@ -65,11 +65,13 @@ Start the application using the source or installer instructions above. On start
 
 1. Open **Settings & Credentials** and select **LPAR Configuration**.
 2. Use **+ Add LPAR** to add a row for each system. Enter its IP address or host name and database name. Fill in the backup job names if you want backup history, and set expected subsystems, monitored ports (`Port:Name`), and web apps (`Job:Port`) as needed.
-3. Select **Storage & System** and choose the log storage root. This should be a writable folder accessible to the operator account; a shared OneDrive or SharePoint folder can be used.
+3. Select **Storage & System** and choose the log storage root. This should be a writable folder accessible to the operator account; a shared OneDrive or SharePoint folder can be used. Optionally choose separate ASP and CPU Excel workbooks here; leave either field blank to use the default workbook under the log root's year folder.
 4. Click **Save Changes** to apply the LPAR and storage configuration before validating credentials.
 5. Select **Credentials**, enter the IBM i username and password, and click **Check Login Creds**. The app checks the configured systems and reports which connections passed. Monitoring is enabled only when credentials have been validated and at least one LPAR is configured. Use **Remember credentials** only if you want the app to remember the username and save the IBM i password in the operating system keyring when available.
 
-For email notifications, open **SMTP Config**, enable email alerts, enter the SMTP server, port, sender and recipient addresses, and credentials, then click **Save Changes** and **Send Test Email**. Configure the ASP threshold and cooldown there. The threshold is the critical point; the warning level is normally two percentage points below it. Warning alerts are shown in orange and are silent; critical alerts are shown in red and sound. Email delivery also depends on the SMTP server accepting the configured account and recipients.
+For email notifications, open **Email & Alerts**, enable email alerts, enter the SMTP server, port, sender and recipient addresses, and credentials, then click **Save Changes** and **Send Test Email**. Configure the ASP threshold and cooldown there. The threshold is the critical point; the warning level is normally two percentage points below it. Warning alerts are shown in orange and are silent; critical alerts are shown in red and sound. Email delivery also depends on the SMTP server accepting the configured account and recipients.
+
+To check for a newer application release manually, open **Storage & System** and select **Check for Updates** under **Application Updates**. If a newer version is available, select **Download Update** to open its release page.
 
 ### 3. Start live monitoring
 
@@ -83,7 +85,7 @@ If a system cannot be reached, check the VPN and host/database configuration, co
 
 Monitoring results are written to daily JSON history files under the selected log root, organized by year and month. The app writes local history before attempting Excel export, so missing or unavailable workbooks do not remove the saved JSON history. Logs & Analytics reads this persisted history; open it to view **System Logs**, or select **Monthly ASP/CPU** to review monthly CPU and ASP trends.
 
-To update the shared hourly workbooks, place `BY - ASP YYYY.xlsx` and `BY - CPU YYYY.xlsx` in the matching `YYYY` folder under the selected log root. Each workbook needs a worksheet matching the IBM i host name and date/hour cells in its template. After every configured server has supplied a reading for that hour, the app writes the batch and saves each workbook. A missing workbook, sheet, or matching cell—or a workbook open in Excel—is reported in System Logs; JSON history remains available.
+To update hourly workbooks, select the ASP and CPU files separately under **Settings & Credentials** > **Storage & System**, or leave the selections blank and place `BY - ASP YYYY.xlsx` and `BY - CPU YYYY.xlsx` in the matching `YYYY` folder under the selected log root. Each workbook needs a worksheet matching the IBM i host name and date/hour cells in its template. After every configured server has supplied a reading for that hour, the app writes the batch and saves each workbook. A missing workbook, sheet, or matching cell—or a workbook open in Excel—is reported in System Logs; JSON history remains available.
 
 In **Monthly ASP/CPU**, choose a month and click **Export to Excel** to save a report as an Excel workbook or CSV. The report is calculated from saved local history. **Generate Previous Month** is available when generating the prior month is appropriate.
 
@@ -101,7 +103,7 @@ After credential validation, open **Backup Management** and choose a configured 
 ## Configuration And Data
 
 - Application settings are stored in the current user's application data directory under `AS400 Quantum Suite`.
-- The log root is configurable in the application. Put the shared `BY - ASP YYYY.xlsx` and `BY - CPU YYYY.xlsx` workbooks in its `YYYY` folder, with a worksheet for each IBM i host name. After all configured servers report for an hour, monitoring batches their readings into the matching worksheet and date/hour cell, then saves each workbook once. Successful workbook updates and failures are reported in System Logs.
+- The log root and optional ASP/CPU workbook paths are configurable in Settings. Selected annual workbooks named `BY - ASP YYYY.xlsx` or `BY - CPU YYYY.xlsx` can be placed in a year folder; if a path is blank, the app uses the standard workbook name under the log root's year folder. Each workbook needs a worksheet for every IBM i host name. After all configured servers report for an hour, monitoring batches their readings into the matching worksheet and date/hour cell, then saves each workbook once. Successful workbook updates and failures are reported in System Logs.
 - Daily JSON monitoring history remains in a separate `YYYY\Month Year` folder and is used by Logs & Analytics and monthly reports. JSON records are saved locally before Excel export, so a missing, unavailable, or mismatched workbook does not discard local history. If the preferred archive location is unavailable, JSON log writes can fall back to the application's local logs folder.
 - Cleanup retains the current and previous calendar months for reporting; older canonical daily logs are subject to the 30-day retention policy.
 - Keep settings backups and log archives in locations accessible to the operator account. Do not include credentials or private logs in public source-control commits.
@@ -144,12 +146,8 @@ tests/                   Pytest regression tests
 
 ## Version Information
 
-The application version is **5.6.0**. Startup checks enforce the configured build expiration and compare the installed version with the published minimum version. Published version metadata is checked using the URL configured in `src/config.py`.
+The application version is **5.6.0**. Startup checks enforce the configured build expiration and compare the installed version with the published minimum version. The **Check for Updates** control in **Settings & Credentials** > **Storage & System** compares the installed version with the published latest version and opens the release page when a newer version is available. Version metadata is read from the repository's `version.json` using the URL configured in `src/config.py`.
 
 ---
 
-<<<<<<< HEAD
 [📖 Read the User Guide](./USER_GUIDE.md)
-=======
-[📖 Read the User Guide](./USER_GUIDE)
->>>>>>> dc5c63e (Changes on UI, Addtional monitoring tracker -Monthlu backup, Excel update ASP/CPU)

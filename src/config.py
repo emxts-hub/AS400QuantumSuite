@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import re
 import uuid
 import time
 from datetime import datetime, timezone
@@ -33,8 +34,8 @@ if _expiration_env:
     except ValueError:
         pass
 
-# GitHub Pages URL serving your version metadata
-VERSION_CHECK_URL = "https://emxts-hub.github.io/monitoringtool/version.json"
+# Raw GitHub URL serving the version metadata committed with the application.
+VERSION_CHECK_URL = "https://raw.githubusercontent.com/emxts-hub/AS400QuantumSuite/main/version.json"
 
 def is_build_expired() -> bool:
     if HARD_EXPIRATION_DATE is None:
@@ -100,6 +101,71 @@ def set_logs_root(path):
 
 
 ONEDRIVE_SHAREPOINT_PATH = _load_saved_logs_root()
+
+
+def _load_saved_excel_workbook_paths():
+    try:
+        with open(get_config_path(), "r", encoding="utf-8") as file:
+            data = json.load(file) or {}
+        return {
+            "asp": str(data.get("ASP_WORKBOOK_PATH") or "").strip(),
+            "cpu": str(data.get("CPU_WORKBOOK_PATH") or "").strip(),
+        }
+    except (OSError, TypeError, ValueError):
+        return {"asp": "", "cpu": ""}
+
+
+_saved_excel_workbook_paths = _load_saved_excel_workbook_paths()
+ASP_WORKBOOK_PATH = _saved_excel_workbook_paths["asp"]
+CPU_WORKBOOK_PATH = _saved_excel_workbook_paths["cpu"]
+
+
+def set_excel_workbook_paths(asp_path, cpu_path):
+    """Set optional workbook paths selected by the user in application settings."""
+    global ASP_WORKBOOK_PATH, CPU_WORKBOOK_PATH
+
+    def normalize(path):
+        raw_path = str(path or "").strip()
+        if not raw_path:
+            return ""
+        return os.path.abspath(os.path.expandvars(os.path.expanduser(raw_path)))
+
+    ASP_WORKBOOK_PATH = normalize(asp_path)
+    CPU_WORKBOOK_PATH = normalize(cpu_path)
+
+
+def get_excel_workbook_path(metric, year):
+    """Return the selected annual workbook path or its default under the log root."""
+    metric_name = str(metric).strip().lower()
+    if metric_name not in {"asp", "cpu"}:
+        raise ValueError(f"Unsupported Excel metric: {metric!r}")
+
+    selected_path = ASP_WORKBOOK_PATH if metric_name == "asp" else CPU_WORKBOOK_PATH
+    year_text = str(year)
+    if selected_path:
+        filename = os.path.basename(selected_path)
+        match = re.fullmatch(
+            rf"BY - {metric_name.upper()} (\d{{4}})\.xlsx",
+            filename,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            directory = os.path.dirname(selected_path)
+            selected_year = match.group(1)
+            if os.path.basename(directory) == selected_year:
+                directory = os.path.join(os.path.dirname(directory), year_text)
+            return os.path.join(
+                directory,
+                f"BY - {metric_name.upper()} {year_text}.xlsx",
+            )
+        return selected_path
+
+    return os.path.join(
+        ONEDRIVE_SHAREPOINT_PATH,
+        year_text,
+        f"BY - {metric_name.upper()} {year_text}.xlsx",
+    )
+
 
 LEGACY_LOGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 

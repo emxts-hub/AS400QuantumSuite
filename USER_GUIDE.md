@@ -22,7 +22,7 @@ If you received the installer, run `AS400QuantumSuite-Setup.exe` and follow the 
 
 If you received the portable application folder instead, extract the entire folder and run `AS400QuantumSuite.exe` from inside it. Keep the executable and its neighboring files together; do not copy the `.exe` by itself to another folder.
 
-At launch, the application checks its build expiration and checks whether the installed version meets the published minimum version. If an update is required, contact the person who provided the installer.
+At launch, the application checks its build expiration and whether the installed version meets the published minimum version. If the installed version is below the minimum, the app requires a supported build; use the update link shown or contact the person who provided the installer. To check for a newer release at any time, open **Settings & Credentials** > **Storage & System** and select **Check for Updates** under **Application Updates**. Select **Download Update** if a newer version is available.
 
 ## 3. Add your IBM i systems
 
@@ -34,7 +34,7 @@ At launch, the application checks its build expiration and checks whether the in
    - **Expected Subsystems** as a comma-separated list of subsystem names.
    - **Monitored Ports** as comma-separated `Port:Name` entries, such as `443:HTTPS`.
    - **Web Apps** as comma-separated `Job:Port` entries, such as `MYAPP:8080`.
-6. Select **Storage & System**. Choose a writable **Log Storage Root Folder**.
+6. Select **Storage & System**. Choose a writable **Log Storage Root Folder**. Optionally use the separate **ASP Excel Workbook** and **CPU Excel Workbook** browse buttons to select the shared workbooks. Leave either field blank to use the default `BY - ASP YYYY.xlsx` or `BY - CPU YYYY.xlsx` inside the log root's year folder.
 7. Click **Save Changes** to apply the system and storage configuration.
 
 The expected subsystem, port, and web-app settings tell the dashboard what to check; only configure the items that matter in your environment.
@@ -51,7 +51,7 @@ The **Start Auto-Refresh** button is enabled only when at least one system is co
 
 ## 5. Configure optional email alerts
 
-1. Open **Settings & Credentials** > **SMTP Config**.
+1. Open **Settings & Credentials** > **Email & Alerts**.
 2. Enable **Enable email alerts** and enter the SMTP server, port, sender address, recipient address or addresses, and SMTP username/password.
 3. Configure the ASP **Threshold %** and email cooldown. The configured threshold is the critical level; the warning level is normally two percentage points below it.
 4. Click **Save Changes**, then **Send Test Email**.
@@ -66,7 +66,7 @@ Warnings appear in orange and do not sound. Critical ASP alerts appear in red an
 4. Select a card or its details to inspect additional system information.
 5. Click **Stop Auto-Refresh** when you want to pause monitoring. Stop monitoring before changing settings.
 
-The refresh interval can be selected in **SMTP Config**. The application queries systems independently, so one unavailable system does not necessarily stop updates for the others.
+The refresh interval can be selected in **Email & Alerts**. The application queries systems independently, so one unavailable system does not necessarily stop updates for the others.
 
 ## 7. View logs and monthly reports
 
@@ -80,7 +80,7 @@ Daily monitoring history is saved as JSON under the selected log root, organized
 
 ### Optional shared hourly Excel workbooks
 
-If your organization uses hourly workbooks, an administrator should place `BY - ASP YYYY.xlsx` and `BY - CPU YYYY.xlsx` in the matching year folder under the selected log root. Each workbook must have a worksheet named for the IBM i host and the expected date/hour cells from the workbook template. After all configured systems report for the hour, the app writes the readings.
+If your organization uses hourly workbooks, select the ASP and CPU workbooks separately in **Settings & Credentials** > **Storage & System**, or leave the selectors blank and place `BY - ASP YYYY.xlsx` and `BY - CPU YYYY.xlsx` in the matching year folder under the selected log root. Each workbook must have a worksheet named for the IBM i host and the expected date/hour cells from the workbook template. If a selected workbook follows the standard annual filename and year-folder layout, the app uses the corresponding year's workbook. After all configured systems report for the hour, the app writes the readings.
 
 Keep these workbooks closed in Excel while the application updates them. Missing or open workbooks, mismatched worksheet names, or missing date/hour cells are reported in **System Logs**. Ask your administrator to correct the workbook template or folder if these errors persist.
 
@@ -108,12 +108,10 @@ After credential validation, open **Backup Management**. Select a system and mon
 | Hourly Excel values are not updated | Confirm the year folder and both workbook names are correct, workbooks are closed, and worksheets/date-hour cells match the required template. JSON history should still be available. |
 | Backup Management is empty or incomplete | Validate credentials and confirm the configured backup job names and IBM i backup history. |
 | The app says an update is required or the build has expired | Contact the person who supplied the installer for a supported build. |
+| The update check cannot reach the version server | Confirm internet access and try **Check for Updates** again later. The manual check reads the published version metadata; it does not download or install the update. |
+| A newer version is available | Select **Download Update** to open the release page, then follow your organization's installation instructions or contact the person who supplied the app. |
 
 For problems that remain unresolved, provide your administrator with the system name, approximate time, and relevant message from **System Logs**. Do not send passwords or settings backups through an unapproved channel.
 
 
-<<<<<<< HEAD
 [🏠 Back to README](./README.md)
-=======
-[🏠 Back to README](./)
->>>>>>> dc5c63e (Changes on UI, Addtional monitoring tracker -Monthlu backup, Excel update ASP/CPU)

@@ -1,0 +1,6 @@
+{
+  "tests/test_excel_store.py::test_push_metrics_updates_matching_year_workbooks": true,
+  "tests/test_excel_store.py::test_push_metrics_reports_missing_workbook_without_creating_it": true,
+  "tests/test_excel_store.py::test_push_metrics_uses_selected_annual_workbooks": true,
+  "tests/test_excel_store.py::test_push_metrics_updates_multiple_server_sheets_as_one_batch": true
+}
