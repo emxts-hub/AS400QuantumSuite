@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from system_logging import SYSTEM_LOGGER
 
 APP_NAME = "AS400 Quantum Suite"
-APP_VERSION = "5.6.0"
+APP_VERSION = "5.7.0"
 USER_PROFILE = os.environ.get("USERPROFILE") or os.path.expanduser("~")
 DEFAULT_ONEDRIVE_SHAREPOINT_PATH = os.path.join(
     USER_PROFILE,
