@@ -78,6 +78,8 @@ from system_logging import (
 )
 
 CREDENTIAL_CHECK_TIMEOUT_SECONDS = 180
+OBJECT_STATISTICS_RETRY_BASE_DELAY_MS = 5000
+OBJECT_STATISTICS_RETRY_MAX_DELAY_MS = 60000
 SYSTEM_LOGGER, SYSTEM_LOG_HANDLER = configure_system_logging()
 
 
@@ -1759,6 +1761,7 @@ class IBMiDashboard(QMainWindow):
         self.object_statistics_thread_pool.setMaxThreadCount(2)
         self.object_statistics_runnables = {}
         self.object_statistics_next_fetch = {}
+        self.object_statistics_retry_counts = {}
         self.system_details_dialogs = {}
         self.system_details_runnables = {}
         self.temporary_storage_thread_pool = QThreadPool(self)
@@ -2279,7 +2282,7 @@ class IBMiDashboard(QMainWindow):
         self.settings_tab_icon_files = ("Cred.svg", "smtp.svg", "configure.svg", "BnR.svg")
         tab_pages = (
             (self.credentials_page, "Credentials"),
-            (self.smtp_page, "Email & Alerts"),
+            (self.smtp_page, "Email && Alerts"),
             (self.lpar_page, "LPAR Configuration"),
             (self.storage_page, "Storage && System"),
         )
@@ -3102,6 +3105,8 @@ class IBMiDashboard(QMainWindow):
                     "EXPECTED_WEB_APPS": dict(EXPECTED_WEB_APPS),
                     "EMAIL_ALERTS": {},
                 }
+            for key in ("LOGS_ROOT", "ASP_WORKBOOK_PATH", "CPU_WORKBOOK_PATH"):
+                payload.pop(key, None)
             email_alerts = dict(cast(dict, payload.get("EMAIL_ALERTS", {})))
             email_alerts["password"] = self.smtp_password_input.text() or get_email_password(
                 self.smtp_username_input.text().strip()
@@ -3112,9 +3117,6 @@ class IBMiDashboard(QMainWindow):
                 "username": self.user_input.text().strip(),
                 "password": self.pass_input.text(),
             }
-            payload["LOGS_ROOT"] = self.logs_root_input.text().strip()
-            payload["ASP_WORKBOOK_PATH"] = self.asp_workbook_input.text().strip()
-            payload["CPU_WORKBOOK_PATH"] = self.cpu_workbook_input.text().strip()
             save_settings_backup(target_path, payload)
         except (OSError, TypeError, ValueError) as exc:
             SYSTEM_LOGGER.error("Settings backup failed")
@@ -3139,9 +3141,6 @@ class IBMiDashboard(QMainWindow):
             self.user_input.setText(str(login_credentials.get("username", "")))
             self.pass_input.setText(str(login_credentials.get("password", "")))
             self.remember_creds_checkbox.setChecked(bool(login_credentials.get("remember", False)))
-            self.logs_root_input.setText(str(payload.get("LOGS_ROOT", ONEDRIVE_SHAREPOINT_PATH)))
-            self.asp_workbook_input.setText(str(payload.get("ASP_WORKBOOK_PATH", "")))
-            self.cpu_workbook_input.setText(str(payload.get("CPU_WORKBOOK_PATH", "")))
             self.smtp_enabled.setChecked(bool(email_alerts.get("enabled", False)))
             self.smtp_server_input.setText(str(email_alerts.get("smtp_server", "")))
             self.smtp_port_input.setText(str(email_alerts.get("port", 587)))
@@ -4652,6 +4651,9 @@ class IBMiDashboard(QMainWindow):
         if not self.is_monitoring or server_name not in self.active_server_configs:
             return
 
+        if self._server_refresh_is_running(server_name):
+            return
+
         if server_name in self.server_refresh_timers:
             self.server_refresh_timers[server_name].stop()
             self.server_refresh_timers[server_name].deleteLater()
@@ -4659,15 +4661,21 @@ class IBMiDashboard(QMainWindow):
         timer = QTimer(self)
         timer.setSingleShot(True)
         if delay_ms is None:
-            if self.server_retry_counts.get(server_name, 0) > 0:
-                delay_ms = self._next_retry_delay_ms()
-            else:
-                delay_ms = self.refresh_interval_ms
+            delay_ms = self._server_refresh_interval_ms(
+                server_name,
+                self.latest_results_cache.get(server_name),
+            )
         timer.setInterval(delay_ms)
         timer.timeout.connect(lambda srv=server_name: self._refresh_single_server(srv))
         timer.start()
         self.server_refresh_timers[server_name] = timer
         self._update_card_refresh_countdowns()
+
+    def _server_refresh_is_running(self, server_name):
+        return any(
+            getattr(runnable, "server", None) == server_name
+            for runnable in self.active_runnables
+        )
 
     def _update_card_refresh_countdowns(self):
         if not self.is_monitoring:
@@ -4692,15 +4700,18 @@ class IBMiDashboard(QMainWindow):
     def _schedule_independent_refreshes(self):
         """Schedule independent per-server refresh timers based on fetch completion time."""
         for server_name in self.active_server_configs:
-            base_delay = self.refresh_interval_ms
-            if self.server_retry_counts.get(server_name, 0) > 0:
-                base_delay = self._next_retry_delay_ms()
-            self._reschedule_server_timer(server_name, base_delay)
+            result = self.latest_results_cache.get(server_name)
+            self._reschedule_server_timer(
+                server_name,
+                self._server_refresh_interval_ms(server_name, result),
+            )
 
     def _ensure_server_timers_alive(self):
         if not self.is_monitoring:
             return
         for server_name in list(self.active_server_configs.keys()):
+            if self._server_refresh_is_running(server_name):
+                continue
             timer = self.server_refresh_timers.get(server_name)
             if timer is None or not timer.isActive():
                 self._reschedule_server_timer(server_name)
@@ -4712,6 +4723,14 @@ class IBMiDashboard(QMainWindow):
         
         if server_name not in self.active_server_configs:
             return
+
+        if self._server_refresh_is_running(server_name):
+            return
+
+        existing_timer = self.server_refresh_timers.pop(server_name, None)
+        if existing_timer is not None:
+            existing_timer.stop()
+            existing_timer.deleteLater()
 
         if not network_checked and not self._refresh_network_available():
             self._reschedule_server_timer(server_name, self._next_retry_delay_ms())
@@ -4786,18 +4805,61 @@ class IBMiDashboard(QMainWindow):
     def _on_object_statistics_fetched(self, data, cache_key, runnable):
         if self.object_statistics_runnables.get(cache_key) is runnable:
             self.object_statistics_runnables.pop(cache_key, None)
-        self.object_statistics_next_fetch[cache_key] = (
-            time.monotonic() + worker._OBJECT_STATISTICS_CACHE_TTL_SECONDS
-        )
+        error = str(data.get("object_statistics_error") or "")
+        if error:
+            retry_count = self.object_statistics_retry_counts.get(cache_key, 0) + 1
+            self.object_statistics_retry_counts[cache_key] = retry_count
+            retry_delay_ms = min(
+                OBJECT_STATISTICS_RETRY_MAX_DELAY_MS,
+                OBJECT_STATISTICS_RETRY_BASE_DELAY_MS
+                * (2 ** min(retry_count - 1, 4)),
+            )
+            self.object_statistics_next_fetch[cache_key] = (
+                time.monotonic() + retry_delay_ms / 1000
+            )
+            SYSTEM_LOGGER.warning(
+                "Object statistics refresh for %s failed; retrying in %d seconds: %s",
+                cache_key[0],
+                retry_delay_ms // 1000,
+                error,
+            )
+            if self.is_monitoring:
+                generation = self.refresh_generation
+                QTimer.singleShot(
+                    retry_delay_ms,
+                    lambda: self._retry_object_statistics_fetch(
+                        cache_key[0],
+                        runnable.cfg,
+                        runnable.username,
+                        runnable.password,
+                        generation,
+                    ),
+                )
+        else:
+            self.object_statistics_retry_counts.pop(cache_key, None)
+            self.object_statistics_next_fetch[cache_key] = (
+                time.monotonic() + worker._OBJECT_STATISTICS_CACHE_TTL_SECONDS
+            )
         config_key = data.get("config_key") or cache_key[0]
         card = self.card_widgets.get(config_key)
         if card is not None:
             card.set_object_statistics(
                 data.get("object_statistics", []),
-                str(data.get("object_statistics_error") or ""),
+                error,
                 bool(data.get("object_statistics_loaded", False)),
                 str(data.get("object_statistics_updated_at") or ""),
             )
+
+    def _retry_object_statistics_fetch(
+        self, server_name, cfg, username, password, generation
+    ):
+        if (
+            not self.is_monitoring
+            or generation != self.refresh_generation
+            or server_name not in self.active_server_configs
+        ):
+            return
+        self._schedule_object_statistics_fetch(server_name, cfg, username, password)
 
     def _schedule_temporary_storage_jobs_fetch(self, server_name, cfg, username, password):
         host = cfg.get("host", "") if isinstance(cfg, dict) else str(cfg)
@@ -4879,7 +4941,7 @@ class IBMiDashboard(QMainWindow):
 
         self._refresh_global_status_summary()
 
-        retry_delay = self._next_retry_delay_ms() if self.server_retry_counts.get(server_name, 0) > 0 else self.refresh_interval_ms
+        retry_delay = self._server_refresh_interval_ms(server_name, lpar_data)
         self._reschedule_server_timer(server_name, retry_delay)
         self._ensure_server_timers_alive()
         self._hide_sync_loading()
@@ -4903,7 +4965,10 @@ class IBMiDashboard(QMainWindow):
             card.last_error_reason = str(failure.get("error") or "Fetch failed")
             card.set_status("OFFLINE")
         self._refresh_global_status_summary()
-        self._reschedule_server_timer(server_name, self._next_retry_delay_ms())
+        self._reschedule_server_timer(
+            server_name,
+            self._server_refresh_interval_ms(server_name, failure),
+        )
 
     def fetch_data(self, force=False):
         if not self.is_monitoring:

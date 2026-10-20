@@ -1549,8 +1549,8 @@ class MonthlyReportWidget(QWidget):
                     match = re.fullmatch(r"IBM_i_Monthly_Report_(\d{4}-\d{2})\.xlsx", file_name)
                     if match:
                         months.add(match.group(1))
-        if not months:
-            months.add(datetime.now().strftime("%Y-%m"))
+        current_month = datetime.now().strftime("%Y-%m")
+        months.add(current_month)
         options = sorted(months, reverse=True)
         
         current_selection = self.month_combo.currentText()
@@ -1559,8 +1559,8 @@ class MonthlyReportWidget(QWidget):
         self.month_combo.addItems(options)
         if current_selection in options:
             self.month_combo.setCurrentText(current_selection)
-        elif self.month_combo.count():
-            self.month_combo.setCurrentIndex(0)
+        else:
+            self.month_combo.setCurrentText(current_month)
         self.month_combo.blockSignals(False)
 
     def refresh_report(self, force=False):

@@ -4,6 +4,9 @@ import json
 import re
 import uuid
 import time
+import hashlib
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from system_logging import SYSTEM_LOGGER
 
@@ -12,12 +15,7 @@ APP_VERSION = "5.7.0"
 USER_PROFILE = os.environ.get("USERPROFILE") or os.path.expanduser("~")
 DEFAULT_ONEDRIVE_SHAREPOINT_PATH = os.path.join(
     USER_PROFILE,
-    "OneDrive - Questronix Corporation",
-    "MCSU Engineering and Hybrid Infra - Documents",
-    "Projects",
-    "BY",
-    "RUNBOOK",
-    "ASPCPU logs",
+    "OneDrive",
 )
 ONEDRIVE_SHAREPOINT_PATH = DEFAULT_ONEDRIVE_SHAREPOINT_PATH
 
@@ -45,9 +43,11 @@ def is_build_expired() -> bool:
 
 
 def parse_version(ver_str: str) -> tuple:
-    """Convert semver string ('1.0.0') to integer tuple (1, 0, 0) for comparison."""
+    """Convert a release version ('1.0.0') to an integer tuple for comparison."""
     try:
-        clean_str = ver_str.split("-")[0].strip()
+        clean_str = ver_str.strip()
+        if "-" in clean_str or "+" in clean_str:
+            raise ValueError("release versions only")
         parts = tuple(map(int, clean_str.split(".")))
         if len(parts) != 3 or any(part < 0 for part in parts):
             raise ValueError("version must contain three non-negative components")
@@ -78,14 +78,31 @@ def get_config_path():
     return os.path.join(get_app_data_dir(), "config.json")
 
 
-def _load_saved_logs_root():
+def _read_config_data():
+    """Load config.json as an object, reporting malformed or unexpected content."""
+    config_path = get_config_path()
     try:
-        with open(get_config_path(), "r", encoding="utf-8") as file:
-            value = (json.load(file) or {}).get("LOGS_ROOT")
-        if isinstance(value, str) and value.strip():
-            return os.path.abspath(os.path.expandvars(os.path.expanduser(value.strip())))
-    except (OSError, TypeError, ValueError):
-        pass
+        with open(config_path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        SYSTEM_LOGGER.warning("Could not read application config %s: %s", config_path, exc)
+        return {}
+
+    if not isinstance(data, dict):
+        SYSTEM_LOGGER.warning(
+            "Ignoring application config %s because its root must be a JSON object",
+            config_path,
+        )
+        return {}
+    return data
+
+
+def _load_saved_logs_root():
+    value = _read_config_data().get("LOGS_ROOT")
+    if isinstance(value, str) and value.strip():
+        return os.path.abspath(os.path.expandvars(os.path.expanduser(value.strip())))
     return DEFAULT_ONEDRIVE_SHAREPOINT_PATH
 
 
@@ -104,15 +121,11 @@ ONEDRIVE_SHAREPOINT_PATH = _load_saved_logs_root()
 
 
 def _load_saved_excel_workbook_paths():
-    try:
-        with open(get_config_path(), "r", encoding="utf-8") as file:
-            data = json.load(file) or {}
-        return {
-            "asp": str(data.get("ASP_WORKBOOK_PATH") or "").strip(),
-            "cpu": str(data.get("CPU_WORKBOOK_PATH") or "").strip(),
-        }
-    except (OSError, TypeError, ValueError):
-        return {"asp": "", "cpu": ""}
+    data = _read_config_data()
+    return {
+        "asp": str(data.get("ASP_WORKBOOK_PATH") or "").strip(),
+        "cpu": str(data.get("CPU_WORKBOOK_PATH") or "").strip(),
+    }
 
 
 _saved_excel_workbook_paths = _load_saved_excel_workbook_paths()
@@ -217,11 +230,17 @@ def get_monthly_logs_dir_for(month_key=None):
     if month_key is None:
         month_key = datetime.now().strftime("%Y-%m")
 
+    if not isinstance(month_key, str) or not re.fullmatch(
+        r"\d{4}-(0[1-9]|1[0-2])",
+        month_key,
+    ):
+        raise ValueError(f"Invalid month key: {month_key!r}; expected YYYY-MM")
+
+    year, month_num = map(int, month_key.split("-"))
     try:
-        year, month_num = map(int, month_key.split("-"))
         month_label = datetime(year, month_num, 1).strftime("%B %Y")
-    except (TypeError, ValueError):
-        return get_logs_dir()
+    except ValueError:
+        raise ValueError(f"Invalid month key: {month_key!r}; expected YYYY-MM") from None
 
     preferred = os.path.join(ONEDRIVE_SHAREPOINT_PATH, str(year), month_label)
     try:
@@ -319,20 +338,13 @@ DEFAULT_EMAIL_ALERTS = {
     "log_dedupe_seconds": 60,
 }
 
+_JSON_APPEND_LOCK = threading.Lock()
+
 
 def _load_config_mapping(key, default):
     """Load a mapping from config.json, falling back when the shape is invalid."""
-    config_path = get_config_path()
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                value = data.get(key)
-                if isinstance(value, dict):
-                    return value
-        except Exception:
-            pass
-    return default.copy()
+    value = _read_config_data().get(key)
+    return value if isinstance(value, dict) else default.copy()
 
 
 def load_server_configs():
@@ -373,61 +385,106 @@ def _atomic_write_json(target_path: str, payload) -> bool:
         raise
 
 
+@contextmanager
+def _append_file_lock(file_path: str):
+    """Serialize append read-modify-write operations across app processes on this machine."""
+    with _JSON_APPEND_LOCK:
+        lock_dir = os.path.join(get_app_data_dir(), "locks")
+        os.makedirs(lock_dir, exist_ok=True)
+        normalized_path = os.path.normcase(os.path.abspath(file_path))
+        lock_name = hashlib.sha256(normalized_path.encode("utf-8")).hexdigest() + ".lock"
+        lock_path = os.path.join(lock_dir, lock_name)
+
+        with open(lock_path, "a+b") as lock_file:
+            if os.name == "nt":
+                import msvcrt
+
+                lock_file.seek(0, os.SEEK_END)
+                if lock_file.tell() == 0:
+                    lock_file.write(b"\0")
+                    lock_file.flush()
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+                try:
+                    yield
+                finally:
+                    lock_file.seek(0)
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
 def safe_json_save(file_path: str, data) -> bool:
     """Safely saves data to a JSON file using atomic file replacement to prevent OneDrive sync locks."""
     target_path = file_path
     try:
         return _atomic_write_json(target_path, data)
-    except Exception:
+    except Exception as exc:
+        SYSTEM_LOGGER.warning("Could not save JSON file %s: %s", target_path, exc)
         fallback_path = _fallback_json_path(file_path)
         if os.path.normpath(fallback_path) == os.path.normpath(file_path):
             return False
         try:
             return _atomic_write_json(fallback_path, data)
-        except Exception:
+        except Exception as fallback_exc:
+            SYSTEM_LOGGER.error(
+                "Could not save JSON file %s or fallback %s: %s",
+                target_path,
+                fallback_path,
+                fallback_exc,
+            )
             return False
 
 
 def safe_json_append_and_save(file_path: str, new_entry: dict, max_retries: int = 20) -> bool:
-    """Re-reads the latest file on disk right before writing to ensure no concurrent records are lost."""
+    """Append an entry while serializing concurrent app processes and preserving corrupt logs."""
     for attempt in range(max_retries):
         try:
-            existing_data = []
-            if os.path.exists(file_path):
-                with open(file_path, "r", encoding="utf-8") as f:
-                    try:
+            with _append_file_lock(file_path):
+                existing_data = []
+                if os.path.exists(file_path):
+                    with open(file_path, "r", encoding="utf-8") as f:
                         existing_data = json.load(f) or []
                         if not isinstance(existing_data, list):
                             existing_data = [existing_data]
-                    except json.JSONDecodeError:
-                        return False
+                existing_data.append(new_entry)
+                if _atomic_write_json(file_path, existing_data):
+                    return True
+                return False
 
-            existing_data.append(new_entry)
-            if _atomic_write_json(file_path, existing_data):
-                return True
+        except json.JSONDecodeError as exc:
+            SYSTEM_LOGGER.error("Could not append to corrupted JSON log %s: %s", file_path, exc)
             return False
-
-        except Exception:
+        except Exception as exc:
+            if attempt == max_retries - 1:
+                SYSTEM_LOGGER.warning("Could not append to JSON log %s: %s", file_path, exc)
             # OneDrive may briefly hold the daily file during synchronization.
             time.sleep(min(1.0, 0.15 * (attempt + 1)))
 
     fallback_path = _fallback_json_path(file_path)
     if os.path.normpath(fallback_path) != os.path.normpath(file_path):
         try:
-            os.makedirs(os.path.dirname(fallback_path), exist_ok=True)
-            current_data = []
-            if os.path.exists(fallback_path):
-                with open(fallback_path, "r", encoding="utf-8") as f:
-                    try:
+            with _append_file_lock(fallback_path):
+                os.makedirs(os.path.dirname(fallback_path), exist_ok=True)
+                current_data = []
+                if os.path.exists(fallback_path):
+                    with open(fallback_path, "r", encoding="utf-8") as f:
                         current_data = json.load(f) or []
                         if not isinstance(current_data, list):
                             current_data = [current_data]
-                    except json.JSONDecodeError:
-                        current_data = []
-            current_data.append(new_entry)
-            return _atomic_write_json(fallback_path, current_data)
-        except Exception:
-            SYSTEM_LOGGER.error("Fallback JSON log persistence failed")
+                current_data.append(new_entry)
+                return _atomic_write_json(fallback_path, current_data)
+        except json.JSONDecodeError as exc:
+            SYSTEM_LOGGER.error("Could not append to corrupted fallback JSON log %s: %s", fallback_path, exc)
+            return False
+        except Exception as exc:
+            SYSTEM_LOGGER.error("Fallback JSON log persistence failed for %s: %s", fallback_path, exc)
             return False
 
     return False

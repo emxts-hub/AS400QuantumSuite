@@ -97,8 +97,49 @@ class DailyBackupFetchThread(QThread):
             )
         ) AS J
         ORDER BY JOB_ENTERED_SYSTEM_TIME DESC
-        FETCH FIRST 3 ROW ONLY
+        FETCH FIRST 20 ROW ONLY
 """
+    BRMS_FALLBACK_QUERY = """
+        WITH BACKUP_STARTS AS (
+            SELECT
+                MESSAGE_TIMESTAMP AS START_TIME,
+                LEAD(MESSAGE_TIMESTAMP) OVER (
+                    ORDER BY MESSAGE_TIMESTAMP
+                ) AS NEXT_START_TIME
+            FROM QUSRBRM.BRMS_LOG_INFO
+            WHERE MESSAGE_TEXT LIKE ?
+              AND MESSAGE_ID = 'BRM1380'
+              AND MESSAGE_TIMESTAMP <= CURRENT_TIMESTAMP
+        ),
+        BACKUP_RUNS AS (
+            SELECT
+                S.START_TIME,
+                MIN(E.MESSAGE_TIMESTAMP) AS END_TIME,
+                MAX(CASE WHEN E.MESSAGE_ID = 'BRM10A1' THEN 1 ELSE 0 END)
+                    AS HAS_COMPLETION_ERRORS
+            FROM BACKUP_STARTS AS S
+            LEFT JOIN QUSRBRM.BRMS_LOG_INFO AS E
+              ON E.MESSAGE_TEXT LIKE ?
+             AND E.MESSAGE_ID IN ('BRM1049', 'BRM10A1')
+             AND E.MESSAGE_TIMESTAMP >= S.START_TIME
+             AND (
+                 S.NEXT_START_TIME IS NULL
+                 OR E.MESSAGE_TIMESTAMP < S.NEXT_START_TIME
+             )
+            GROUP BY S.START_TIME
+        )
+        SELECT
+            START_TIME,
+            END_TIME,
+            CASE
+                WHEN END_TIME IS NULL THEN 'RUNNING'
+                WHEN HAS_COMPLETION_ERRORS = 1 THEN 'COMPLETED WITH ERRORS'
+                ELSE 'COMPLETED'
+            END AS BACKUP_STATUS
+        FROM BACKUP_RUNS
+        ORDER BY START_TIME DESC
+        FETCH FIRST 20 ROWS ONLY
+    """
 
     def __init__(self, server_name, host, db, username, password, job_name_short):
         super().__init__()
@@ -124,11 +165,38 @@ class DailyBackupFetchThread(QThread):
             except Exception:
                 pass
             
-            # Pass a tuple containing only one parameter:
-            cursor.execute(self.QUERY, (self.job_name_short,))
-            
-            columns = [column[0].lower() for column in cursor.description]
-            records = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            primary_error = None
+            try:
+                cursor.execute(self.QUERY, (self.job_name_short,))
+                columns = [column[0].lower() for column in cursor.description]
+                records = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            except Exception as exc:
+                primary_error = exc
+                records = []
+
+            if not records:
+                try:
+                    job_pattern = f"%{self.job_name_short}%"
+                    cursor.execute(
+                        self.BRMS_FALLBACK_QUERY,
+                        (job_pattern, job_pattern),
+                    )
+                    columns = [column[0].lower() for column in cursor.description]
+                    records = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                    for record in records:
+                        record["job_name"] = self.job_name_short
+                except Exception as fallback_error:
+                    if primary_error is not None:
+                        raise RuntimeError(
+                            "The job-history query failed "
+                            f"({primary_error}); the BRMS log fallback failed "
+                            f"({fallback_error})"
+                        ) from fallback_error
+                    raise
+
+            if not records and primary_error is not None:
+                raise primary_error
+
             self.data_ready.emit(self.server_name, records)
         except Exception as exc:
             self.error.emit(self.server_name, str(exc))
@@ -428,8 +496,15 @@ def _fetch_object_statistics_cached(cursor, host, db, username):
             loaded = bool(cached and cached[3])
             updated_at = cached[4] if cached else ""
 
-        with _OBJECT_STATISTICS_CACHE_LOCK:
-            _OBJECT_STATISTICS_CACHE[cache_key] = (time.monotonic(), rows, error, loaded, updated_at)
+        if not error:
+            with _OBJECT_STATISTICS_CACHE_LOCK:
+                _OBJECT_STATISTICS_CACHE[cache_key] = (
+                    time.monotonic(),
+                    rows,
+                    error,
+                    loaded,
+                    updated_at,
+                )
         return rows, error, loaded, updated_at
 
 

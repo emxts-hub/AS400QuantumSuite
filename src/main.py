@@ -22,9 +22,11 @@ LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_error.l
 class DummyStream:
     """Safe fall-through stream to prevent write blocks on Windows frozen builds."""
     def write(self, data):
-        pass
+        return len(data)
+
     def flush(self):
         pass
+
 
 if sys.platform == "win32" and getattr(sys, 'frozen', False):
     try:
@@ -46,11 +48,9 @@ def log_exception(exc_type, exc_value, exc_traceback):
         f.write("\n--- UNHANDLED EXCEPTION ---\n")
         traceback.print_exception(exc_type, exc_value, exc_traceback, file=f)
 
+
 sys.excepthook = log_exception
 
-
-def resource_path(relative_path):
-    return get_resource_path(relative_path)
 
 def main():
     try:
@@ -61,7 +61,7 @@ def main():
         app.setProperty("is_dark_theme", True)
         app.setStyleSheet(DARK_STYLESHEET)
 
-        app_icon = QIcon(resource_path("logo.png"))
+        app_icon = QIcon(get_resource_path("logo.png"))
         app.setWindowIcon(app_icon)
 
         # 2. Check Expiration right after QApplication setup
@@ -84,7 +84,15 @@ def main():
             def handle_version_check(success, min_ver, latest_ver, download_url, err):
                 if success:
                     current_ver_tuple = parse_version(APP_VERSION)
+                    latest_ver_tuple = parse_version(latest_ver)
                     min_ver_tuple = parse_version(min_ver)
+
+                    if current_ver_tuple < latest_ver_tuple:
+                        logger.info(
+                            "Update available: v%s (installed: v%s)",
+                            latest_ver,
+                            APP_VERSION,
+                        )
 
                     if current_ver_tuple < min_ver_tuple:
                         window.hide()
@@ -95,6 +103,8 @@ def main():
                         )
                         dialog.exec()
                         sys.exit(0)
+                elif err:
+                    logger.warning("Version check failed: %s", err)
 
             worker = VersionCheckWorker()
             worker.version_checked.connect(handle_version_check)
@@ -102,7 +112,6 @@ def main():
             window._version_worker = worker
 
         # Defer execution by 200ms so window opens instantly
-        
         QTimer.singleShot(200, run_version_check)
 
         sys.exit(app.exec())

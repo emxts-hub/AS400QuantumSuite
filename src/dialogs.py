@@ -1454,6 +1454,7 @@ class WebAppJobsDialog(FramelessDialog):
 
         app = QApplication.instance()
         is_dark = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
+        self._is_dark_theme = is_dark
         dialog_bg = "#171819" if is_dark else "#f6f8fa"
         surface = "#202225" if is_dark else "#ffffff"
         header_bg = "#171819" if is_dark else "#eaeef2"
@@ -1499,6 +1500,7 @@ class WebAppJobsDialog(FramelessDialog):
             app_jobs = (jobs_by_app or {}).get(app_name, [])
             app_jobs = [job for job in app_jobs if isinstance(job, dict)]
             port = app.get("port", "")
+            port_status = str(app.get("status") or "").strip().upper()
             if not app_jobs:
                 app_jobs = [{
                     "job_name": "No active jobs",
@@ -1506,14 +1508,14 @@ class WebAppJobsDialog(FramelessDialog):
                     "temporary_storage": "",
                     "cpu_time": "",
                 }]
-            grouped_rows.append((app_name, str(port), app_jobs))
+            grouped_rows.append((app_name, str(port), port_status, app_jobs))
 
         self.table.setSortingEnabled(False)
         self.table.clearContents()
-        self.table.setRowCount(sum(len(rows) for _, _, rows in grouped_rows))
+        self.table.setRowCount(sum(len(rows) for _, _, _, rows in grouped_rows))
         row_index = 0
         separator_rows = set()
-        for app_name, port, app_jobs in grouped_rows:
+        for app_name, port, port_status, app_jobs in grouped_rows:
             group_start = row_index
             if group_start:
                 separator_rows.add(group_start - 1)
@@ -1524,7 +1526,9 @@ class WebAppJobsDialog(FramelessDialog):
                     job.get("job_status", ""),
                     job.get("temporary_storage", ""),
                     job.get("cpu_time", ""),
-                    port,
+                    f"{port} - NOT LISTENING" if port_status == "DOWN" else (
+                        f"{port} - INVALID" if port_status == "INVALID" else port
+                    ),
                 )
                 for column, value in enumerate(values):
                     if column in (0, 5) and row_index > group_start:
@@ -1532,6 +1536,21 @@ class WebAppJobsDialog(FramelessDialog):
                     item = QTableWidgetItem(str(value))
                     if column in (0, 5):
                         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    if column == 5 and port_status in {"DOWN", "INVALID"}:
+                        item.setBackground(
+                            QColor("#4a2428" if self._is_dark_theme else "#ffebe9")
+                        )
+                        item.setForeground(
+                            QColor("#ff7b72" if self._is_dark_theme else "#cf222e")
+                        )
+                        font = item.font()
+                        font.setBold(True)
+                        item.setFont(font)
+                        item.setToolTip(
+                            f"Port {port} is not listening."
+                            if port_status == "DOWN"
+                            else f"Port {port} is invalid."
+                        )
                     self.table.setItem(row_index, column, item)
                 row_index += 1
             group_size = len(app_jobs)
