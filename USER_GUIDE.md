@@ -22,7 +22,7 @@ If you received the installer, run `AS400QuantumSuite-Setup.exe` and follow the 
 
 If you received the portable application folder instead, extract the entire folder and run `AS400QuantumSuite.exe` from inside it. Keep the executable and its neighboring files together; do not copy the `.exe` by itself to another folder.
 
-At launch, the application checks its build expiration and whether the installed version meets the published minimum version. If the installed version is below the minimum, the app requires a supported build; use the update link shown or contact the person who provided the installer. To check for a newer release at any time, open **Settings & Credentials** > **Storage & System** and select **Check for Updates** under **Application Updates**. Select **Download Update** if a newer version is available.
+At launch, the application checks its build expiration and whether the installed version meets the published minimum version. If the installed version is below the minimum, the app requires a supported build; use the update link shown or contact the person who provided the installer. A newer-version notice is only shown when your installed version is behind. To check for a newer release at any time, open **Settings & Credentials** > **Storage & System** and select **Check for Updates** under **Application Updates**. Select **Download Update** if a newer version is available.
 
 ## 3. Add your IBM i systems
 
@@ -62,18 +62,20 @@ Warnings appear in orange and do not sound. Critical ASP alerts appear in red an
 
 1. Open **Live Monitor**.
 2. Click **Start Auto-Refresh**.
-3. Review each system card for connection status, CPU and ASP usage, active jobs, subsystem health, and configured service or web-app checks.
+3. Review each system card for connection status, CPU and ASP usage, active jobs, subsystem health, and configured service or web-app checks. For web apps, the running-job count and listener-port status are separate: a running job can appear even when its port is not listening. Expand **Web Applications** to see a stopped or invalid port highlighted.
 4. Select a card or its details to inspect additional system information.
 5. Click **Stop Auto-Refresh** when you want to pause monitoring. Stop monitoring before changing settings.
 
 The refresh interval can be selected in **Email & Alerts**. The application queries systems independently, so one unavailable system does not necessarily stop updates for the others.
+
+Object statistics may take longer to gather than live card data. If an object-statistics query is interrupted, the app retries automatically while monitoring remains active; repeated failures are retried with increasing delays.
 
 ## 7. View logs and monthly reports
 
 Open **Logs & Analytics**:
 
 - **System Logs** shows persisted monitoring history, including system status and detected issues. The page refreshes its history while visible.
-- **Monthly ASP/CPU** shows historical capacity trends. Choose a month and select **Export to Excel** to save a report as an Excel workbook or CSV.
+- **Monthly ASP/CPU** shows historical capacity trends. It opens on the current month; use the selector to view another available month, then select **Export to Excel** to save a report as an Excel workbook or CSV.
 - Use **Generate Previous Month** when you need to create the prior month's report.
 
 Daily monitoring history is saved as JSON under the selected log root, organized by year and month. The JSON history is saved locally before the app attempts to update shared Excel workbooks, so workbook export problems do not erase the monitoring history.
@@ -86,7 +88,7 @@ Keep these workbooks closed in Excel while the application updates them. Missing
 
 ## 8. Review backup history
 
-After credential validation, open **Backup Management**. Select a system and month to review available daily/weekly, monthly, and journal backup information, including times, durations, status, and averages. Backup data is queried from the IBM i system and depends on the configured backup job names.
+After credential validation, open **Backup Management**. Select a system and month to review available daily/weekly, monthly, and journal backup information, including times, durations, status, and averages. Backup data is queried from the IBM i system and depends on the configured backup job names. If the normal daily/weekly job-history query returns no records, the app also searches IBM i BRMS log history for the configured backup name. This alternate source can help when a backup is recorded in BRMS logs but is not returned by the job-history query.
 
 ## 9. Settings, backups, and privacy
 
@@ -104,9 +106,11 @@ After credential validation, open **Backup Management**. Select a system and mon
 | The app cannot connect to an IBM i system | Connect to the VPN, confirm the IBM i host and database name, check the ODBC driver, and validate the account credentials. |
 | Credential check says the VPN is unavailable | Connect to the organization's VPN and contact your administrator if your workstation does not receive the expected `10.212` IPv4 address. |
 | A system card shows a connection or query error | Check that the IBM i system is reachable and that the account has permission to run the required queries. Review **Settings & Credentials** > **System Logs**. |
+| A web-app job is present but the application shows a stopped port | Expand **Web Applications** on the system card. The port is highlighted when IBM i reports that it is not listening; a running job alone does not confirm the listener is available. |
 | Email test or alerts fail | Confirm SMTP host, port, TLS option, sender/recipient addresses, account credentials, and network access to the mail server. |
 | Hourly Excel values are not updated | Confirm the year folder and both workbook names are correct, workbooks are closed, and worksheets/date-hour cells match the required template. JSON history should still be available. |
 | Backup Management is empty or incomplete | Validate credentials and confirm the configured backup job names and IBM i backup history. |
+| Daily/weekly backup history is still empty | Confirm the configured backup name and check whether matching BRMS records exist on the IBM i system. The fallback also requires access to `QUSRBRM.BRMS_LOG_INFO`. |
 | The app says an update is required or the build has expired | Contact the person who supplied the installer for a supported build. |
 | The update check cannot reach the version server | Confirm internet access and try **Check for Updates** again later. The manual check reads the published version metadata; it does not download or install the update. |
 | A newer version is available | Select **Download Update** to open the release page, then follow your organization's installation instructions or contact the person who supplied the app. |

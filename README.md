@@ -1,16 +1,17 @@
 # AS400 Quantum Suite
 
-**AS400 Quantum Suite 5.6.0** is a Windows desktop monitoring and operations dashboard for IBM i (AS/400) environments. It connects to configured IBM i systems through DB2/ODBC and presents live LPAR status, capacity metrics, service checks, backup history, and monthly reports in a PyQt6 application.
+**AS400 Quantum Suite** is a Windows desktop monitoring and operations dashboard for IBM i (AS/400) environments. It connects to configured IBM i systems through DB2/ODBC and presents live LPAR status, capacity metrics, service checks, backup history, and monthly reports in a PyQt6 application.
 
 ## Features
 
-- **Live Monitor:** Per-server status cards for CPU, ASP, active jobs, subsystem health, web applications, and configured network services. Monitoring runs in background workers with per-server refresh and connection status.
+- **Live Monitor:** Per-server status cards for CPU, ASP, active jobs, subsystem health, web applications, and configured network services. Web-app job counts and listener-port state are shown separately; a running job does not make a stopped port appear healthy. Monitoring runs in background workers with per-server refresh and connection status.
+- **Resilient data gathering:** Object statistics retry automatically after query failures while monitoring is active, with a bounded retry delay.
 - **ASP alerts:** The configured ASP threshold is the critical level. A warning is raised 2% below it by default; warnings are silent and highlighted orange, while critical alerts are highlighted red and sound. SMTP notifications include the server name, IP, current ASP usage, and configured critical threshold.
 - **Server status alerts:** Server-down email notifications are delayed by three seconds and suppressed if the VPN disconnects or the server recovers during that delay.
-- **Logs & Analytics:** Browse persisted monitoring history and monthly CPU/ASP trends. Log history is refreshed when this page is visible, avoiding background OneDrive log-folder scans on the dashboard. Export monthly reports to Excel and generate a report for the previous month.
-- **Backup Management:** Review daily, weekly, monthly, and journal backup history in two panels by server and month, including duration, start/end times, and daily, weekly, and monthly averages.
+- **Logs & Analytics:** Browse persisted monitoring history and monthly CPU/ASP trends. Log history is refreshed when this page is visible, avoiding background OneDrive log-folder scans on the dashboard. The monthly report opens on the current month, includes earlier months when data is available, and can be exported to Excel or CSV.
+- **Backup Management:** Review daily, weekly, monthly, and journal backup history by server and month, including duration, start/end times, and averages. Daily/weekly history falls back to IBM i BRMS log records when the regular job-history query returns no records.
 - **Settings & Credentials:** Configure IBM i connections, expected subsystems and ports, email/SMTP alerts, refresh preferences, log and Excel workbook paths. Validate credentials, send a test email, check for application updates, and back up or restore settings.
-- **Startup checks:** Check the configured expiration date and compare the installed version with the published minimum supported version. A manual update check is available in **Storage & System**.
+- **Startup checks:** Check the configured expiration date and compare the installed version with the published minimum supported version. A newer-version notice is shown only when the installed version is behind. A manual update check is available in **Storage & System**.
 
 ## Screenshots
 
@@ -87,11 +88,11 @@ Monitoring results are written to daily JSON history files under the selected lo
 
 To update hourly workbooks, select the ASP and CPU files separately under **Settings & Credentials** > **Storage & System**, or leave the selections blank and place `BY - ASP YYYY.xlsx` and `BY - CPU YYYY.xlsx` in the matching `YYYY` folder under the selected log root. Each workbook needs a worksheet matching the IBM i host name and date/hour cells in its template. After every configured server has supplied a reading for that hour, the app writes the batch and saves each workbook. A missing workbook, sheet, or matching cell—or a workbook open in Excel—is reported in System Logs; JSON history remains available.
 
-In **Monthly ASP/CPU**, choose a month and click **Export to Excel** to save a report as an Excel workbook or CSV. The report is calculated from saved local history. **Generate Previous Month** is available when generating the prior month is appropriate.
+In **Monthly ASP/CPU**, the current month is selected when the report opens. Choose another month from the selector if needed, then click **Export to Excel** to save a report as an Excel workbook or CSV. The report is calculated from saved local history. **Generate Previous Month** is available when generating the prior month is appropriate.
 
 ### 5. Review backup history
 
-After credential validation, open **Backup Management** and choose a configured server and month. The page fetches backup information from IBM i and presents daily/weekly, monthly, and journal backup panels, with run times, durations, status, and averages where available. Backup history is queried from the systems; it is separate from the locally persisted CPU/ASP monitoring history.
+After credential validation, open **Backup Management** and choose a configured server and month. The page fetches backup information from IBM i and presents daily/weekly, monthly, and journal backup panels, with run times, durations, status, and averages where available. If the regular daily/weekly job-history query has no matching records, the app checks IBM i BRMS log history for the configured backup job name. Backup history is queried from the systems; it is separate from the locally persisted CPU/ASP monitoring history.
 
 ### 6. Know what is saved
 
@@ -144,9 +145,9 @@ Image & Sound/           App icons and alert sounds
 tests/                   Pytest regression tests
 ```
 
-## Version Information
+## Application Updates
 
-The application version is **5.6.0**. Startup checks enforce the configured build expiration and compare the installed version with the published minimum version. The **Check for Updates** control in **Settings & Credentials** > **Storage & System** compares the installed version with the published latest version and opens the release page when a newer version is available. Version metadata is read from the repository's `version.json` using the URL configured in `src/config.py`.
+Startup checks enforce the configured build expiration and compare the installed version with the published minimum supported version. The **Check for Updates** control in **Settings & Credentials** > **Storage & System** compares the installed version with the published latest version and offers the release page when a newer version is available. Version metadata is read from the repository's `version.json` using the URL configured in `src/config.py`.
 
 ---
 
