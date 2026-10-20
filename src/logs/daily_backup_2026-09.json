@@ -1,0 +1,904 @@
+{
+  "192.168.50.130": [],
+  "192.168.56.30": [
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-30 06:58:18",
+      "job_end_severity": 30,
+      "job_name": "521138/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-30 00:06:35"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-29 06:57:02",
+      "job_end_severity": 30,
+      "job_name": "584753/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-29 00:09:35"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-28 06:56:14",
+      "job_end_severity": 30,
+      "job_name": "676668/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-28 00:07:08"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-27 07:49:08",
+      "job_end_severity": 30,
+      "job_name": "056451/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-27 00:05:15"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-26 06:55:39",
+      "job_end_severity": 30,
+      "job_name": "255915/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-26 00:06:27"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-25 07:08:53",
+      "job_end_severity": 30,
+      "job_name": "474293/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-25 00:14:35"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-24 07:01:07",
+      "job_end_severity": 30,
+      "job_name": "706288/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-24 00:05:41"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-23 06:51:23",
+      "job_end_severity": 30,
+      "job_name": "915276/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-23 00:08:55"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-22 07:03:33",
+      "job_end_severity": 30,
+      "job_name": "099185/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-22 00:07:52"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-21 06:33:58",
+      "job_end_severity": 30,
+      "job_name": "257460/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-21 00:08:21"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-20 07:05:07",
+      "job_end_severity": 30,
+      "job_name": "717040/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-20 00:07:52"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-19 06:46:20",
+      "job_end_severity": 30,
+      "job_name": "963098/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-19 00:06:42"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-18 07:26:01",
+      "job_end_severity": 30,
+      "job_name": "171951/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-18 00:12:11"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-17 07:15:17",
+      "job_end_severity": 30,
+      "job_name": "380437/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-17 00:04:41"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-16 06:57:53",
+      "job_end_severity": 30,
+      "job_name": "619375/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-16 00:10:53"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-15 06:45:21",
+      "job_end_severity": 30,
+      "job_name": "729444/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-15 00:07:09"
+    }
+  ],
+  "192.168.55.30": [
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-30 08:35:29",
+      "job_end_severity": 30,
+      "job_name": "218852/QSECOFR/DAILYSWA",
+      "start_time": "2026-09-29 23:00:02"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-29 08:31:08",
+      "job_end_severity": 30,
+      "job_name": "252815/QSECOFR/DAILYSWA",
+      "start_time": "2026-09-28 23:00:01"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-28 10:08:58",
+      "job_end_severity": 30,
+      "job_name": "133749/JDACON1/DAILYSWA",
+      "start_time": "2026-09-27 23:00:14"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-27 08:30:07",
+      "job_end_severity": 30,
+      "job_name": "905218/QSECOFR/DAILYSWA",
+      "start_time": "2026-09-26 23:00:02"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-26 08:32:41",
+      "job_end_severity": 30,
+      "job_name": "680707/QSECOFR/DAILYSWA",
+      "start_time": "2026-09-25 23:00:01"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-25 08:26:15",
+      "job_end_severity": 30,
+      "job_name": "393006/QSECOFR/DAILYSWA",
+      "start_time": "2026-09-24 23:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-24 08:29:35",
+      "job_end_severity": 30,
+      "job_name": "098308/QSECOFR/DAILYSWA",
+      "start_time": "2026-09-23 23:00:01"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-23 08:28:44",
+      "job_end_severity": 30,
+      "job_name": "740060/QSECOFR/DAILYSWA",
+      "start_time": "2026-09-22 23:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-22 08:33:30",
+      "job_end_severity": 30,
+      "job_name": "410004/QSECOFR/DAILYSWA",
+      "start_time": "2026-09-21 23:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-21 09:21:00",
+      "job_end_severity": 30,
+      "job_name": "083310/JDACON1/DAILYSWA",
+      "start_time": "2026-09-20 23:04:31"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-20 07:29:55",
+      "job_end_severity": 30,
+      "job_name": "619931/QSECOFR/DAILYSWA",
+      "start_time": "2026-09-19 23:00:02"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-19 08:41:14",
+      "job_end_severity": 30,
+      "job_name": "238261/QSECOFR/DAILYSWA",
+      "start_time": "2026-09-18 23:00:02"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-18 08:37:44",
+      "job_end_severity": 30,
+      "job_name": "917543/QSECOFR/DAILYSWA",
+      "start_time": "2026-09-17 23:00:02"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-17 08:28:24",
+      "job_end_severity": 30,
+      "job_name": "548369/QSECOFR/DAILYSWA",
+      "start_time": "2026-09-16 23:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-16 08:30:05",
+      "job_end_severity": 30,
+      "job_name": "228204/QSECOFR/DAILYSWA",
+      "start_time": "2026-09-15 23:00:01"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-15 08:32:46",
+      "job_end_severity": 30,
+      "job_name": "927472/QSECOFR/DAILYSWA",
+      "start_time": "2026-09-14 23:00:01"
+    }
+  ],
+  "192.168.54.30": [
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-30 05:11:33",
+      "job_end_severity": 30,
+      "job_name": "046003/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-30 00:04:35"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-29 05:18:45",
+      "job_end_severity": 30,
+      "job_name": "855461/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-29 00:07:36"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-28 05:11:42",
+      "job_end_severity": 30,
+      "job_name": "698061/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-28 00:05:30"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-27 07:26:56",
+      "job_end_severity": 30,
+      "job_name": "567073/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-27 00:05:55"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-26 05:19:46",
+      "job_end_severity": 30,
+      "job_name": "426401/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-26 00:05:03"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-25 05:26:32",
+      "job_end_severity": 30,
+      "job_name": "247217/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-25 00:11:46"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-24 05:12:39",
+      "job_end_severity": 30,
+      "job_name": "089724/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-24 00:04:15"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-23 05:15:13",
+      "job_end_severity": 30,
+      "job_name": "946217/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-23 00:07:04"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-22 05:25:15",
+      "job_end_severity": 30,
+      "job_name": "817977/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-22 00:06:50"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-21 04:51:59",
+      "job_end_severity": 30,
+      "job_name": "656524/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-21 00:06:53"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-20 06:30:17",
+      "job_end_severity": 30,
+      "job_name": "526486/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-20 00:06:07"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-19 05:21:35",
+      "job_end_severity": 30,
+      "job_name": "402417/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-19 00:01:36"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-18 06:11:37",
+      "job_end_severity": 30,
+      "job_name": "226570/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-18 00:13:01"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-17 05:40:50",
+      "job_end_severity": 30,
+      "job_name": "076628/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-17 00:02:36"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-16 05:23:11",
+      "job_end_severity": 30,
+      "job_name": "913488/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-16 00:07:40"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-15 05:14:08",
+      "job_end_severity": 30,
+      "job_name": "767500/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-15 00:06:30"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-12 05:13:47",
+      "job_end_severity": 30,
+      "job_name": "399700/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-12 00:06:10"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-11 05:24:14",
+      "job_end_severity": 30,
+      "job_name": "232732/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-11 00:03:15"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-10 04:44:00",
+      "job_end_severity": 30,
+      "job_name": "075498/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-10 00:08:30"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-09 05:20:20",
+      "job_end_severity": 30,
+      "job_name": "913176/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-09 00:11:47"
+    }
+  ],
+  "192.168.53.30": [
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-30 12:04:49",
+      "job_end_severity": 30,
+      "job_name": "041837/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-29 22:00:15"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-29 12:32:30",
+      "job_end_severity": 30,
+      "job_name": "834452/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-28 22:01:01"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-28 14:22:48",
+      "job_end_severity": 30,
+      "job_name": "349123/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-27 22:02:06"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-27 11:37:47",
+      "job_end_severity": 30,
+      "job_name": "427812/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-26 22:00:13"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-26 11:46:40",
+      "job_end_severity": 30,
+      "job_name": "308186/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-25 22:01:13"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-25 12:18:15",
+      "job_end_severity": 30,
+      "job_name": "042694/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-24 22:04:11"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-24 11:59:54",
+      "job_end_severity": 30,
+      "job_name": "856695/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-23 22:02:52"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-23 11:44:48",
+      "job_end_severity": 30,
+      "job_name": "746959/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-22 22:00:18"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-22 12:04:22",
+      "job_end_severity": 30,
+      "job_name": "582742/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-21 22:00:18"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-19 11:15:24",
+      "job_end_severity": 30,
+      "job_name": "411961/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-18 22:01:14"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-18 11:44:19",
+      "job_end_severity": 30,
+      "job_name": "229687/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-17 22:02:13"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-17 11:26:53",
+      "job_end_severity": 30,
+      "job_name": "099781/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-16 22:04:19"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-16 11:33:01",
+      "job_end_severity": 30,
+      "job_name": "919015/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-15 22:01:56"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-15 11:48:07",
+      "job_end_severity": 30,
+      "job_name": "713145/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-14 22:00:27"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-14 10:37:19",
+      "job_end_severity": 30,
+      "job_name": "430130/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-13 22:06:19"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-13 11:18:13",
+      "job_end_severity": 30,
+      "job_name": "609027/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-12 22:01:04"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-12 11:05:18",
+      "job_end_severity": 30,
+      "job_name": "509110/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-11 22:01:30"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-11 11:23:23",
+      "job_end_severity": 30,
+      "job_name": "359402/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-10 22:00:24"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-10 15:30:02",
+      "job_end_severity": 30,
+      "job_name": "224342/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-09 22:00:46"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-09 11:25:04",
+      "job_end_severity": 30,
+      "job_name": "118276/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-08 22:01:45"
+    }
+  ],
+  "192.168.51.30": [
+    {
+      "backup_status": "RUNNING",
+      "end_time": null,
+      "job_end_severity": 30,
+      "job_name": "656549/QSECOFR/GRPRPILIB",
+      "start_time": "2026-09-21 03:00:03"
+    }
+  ],
+  "192.168.52.30": [
+    {
+      "backup_status": "RUNNING",
+      "end_time": null,
+      "job_end_severity": 30,
+      "job_name": "778132/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-30 21:33:26"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-30 05:01:27",
+      "job_end_severity": 30,
+      "job_name": "363612/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-29 21:30:36"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-29 05:03:44",
+      "job_end_severity": 30,
+      "job_name": "929783/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-28 21:38:08"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-28 07:49:21",
+      "job_end_severity": 30,
+      "job_name": "425876/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-27 21:32:23"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-27 04:46:49",
+      "job_end_severity": 30,
+      "job_name": "986760/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-26 21:30:15"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-26 05:06:09",
+      "job_end_severity": 30,
+      "job_name": "525997/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-25 21:31:38"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-25 05:06:31",
+      "job_end_severity": 30,
+      "job_name": "098649/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-24 21:31:01"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-24 05:09:10",
+      "job_end_severity": 30,
+      "job_name": "667475/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-23 21:35:12"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-23 04:53:30",
+      "job_end_severity": 30,
+      "job_name": "339760/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-22 21:34:03"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-22 05:06:32",
+      "job_end_severity": 30,
+      "job_name": "066277/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-21 21:30:20"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-21 07:44:57",
+      "job_end_severity": 30,
+      "job_name": "800608/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-20 21:33:26"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-20 04:17:27",
+      "job_end_severity": 30,
+      "job_name": "566992/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-19 21:32:28"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-19 04:51:36",
+      "job_end_severity": 30,
+      "job_name": "283316/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-18 21:33:28"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-18 05:37:50",
+      "job_end_severity": 30,
+      "job_name": "981942/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-17 21:33:04"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-17 05:36:01",
+      "job_end_severity": 30,
+      "job_name": "724252/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-16 21:34:24"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-16 05:05:33",
+      "job_end_severity": 30,
+      "job_name": "430018/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-15 21:33:34"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-15 04:48:50",
+      "job_end_severity": 30,
+      "job_name": "142978/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-14 21:30:35"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-13 04:14:47",
+      "job_end_severity": 30,
+      "job_name": "632087/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-12 21:32:28"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-12 05:06:53",
+      "job_end_severity": 30,
+      "job_name": "338337/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-11 21:31:37"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-11 05:08:47",
+      "job_end_severity": 30,
+      "job_name": "046918/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-10 21:39:49"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-10 04:15:47",
+      "job_end_severity": 30,
+      "job_name": "770968/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-09 21:31:10"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-09 04:57:20",
+      "job_end_severity": 30,
+      "job_name": "468258/QMAESTRO/DAILYSWA",
+      "start_time": "2026-09-08 21:34:06"
+    }
+  ],
+  "192.168.50.30": [
+    {
+      "backup_status": "RUNNING",
+      "end_time": null,
+      "job_end_severity": 30,
+      "job_name": "798474/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-30 21:32:21"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-30 04:42:26",
+      "job_end_severity": 30,
+      "job_name": "641792/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-29 21:30:17"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-29 04:51:28",
+      "job_end_severity": 30,
+      "job_name": "512860/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-28 21:37:57"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-28 04:43:46",
+      "job_end_severity": 30,
+      "job_name": "362914/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-27 21:32:46"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-27 04:42:40",
+      "job_end_severity": 30,
+      "job_name": "185278/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-26 21:30:19"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-26 04:50:00",
+      "job_end_severity": 30,
+      "job_name": "000745/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-25 21:31:42"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-25 04:38:47",
+      "job_end_severity": 30,
+      "job_name": "841595/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-24 21:31:15"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-24 04:53:14",
+      "job_end_severity": 30,
+      "job_name": "690970/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-23 21:34:06"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-23 04:47:58",
+      "job_end_severity": 30,
+      "job_name": "543435/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-22 21:33:23"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-22 05:03:10",
+      "job_end_severity": 30,
+      "job_name": "409875/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-21 21:30:19"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-21 05:00:16",
+      "job_end_severity": 30,
+      "job_name": "256289/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-20 21:33:08"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-20 04:08:57",
+      "job_end_severity": 30,
+      "job_name": "075617/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-19 21:32:19"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-19 04:42:14",
+      "job_end_severity": 30,
+      "job_name": "888443/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-18 21:33:11"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-18 05:06:16",
+      "job_end_severity": 30,
+      "job_name": "711001/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-17 21:32:18"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-17 05:28:06",
+      "job_end_severity": 30,
+      "job_name": "552265/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-16 21:33:38"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-16 04:46:21",
+      "job_end_severity": 30,
+      "job_name": "364547/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-15 21:31:47"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-15 04:32:43",
+      "job_end_severity": 30,
+      "job_name": "165188/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-14 21:30:52"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-13 03:55:10",
+      "job_end_severity": 30,
+      "job_name": "808243/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-12 21:32:16"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-12 04:42:06",
+      "job_end_severity": 30,
+      "job_name": "605815/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-11 21:31:23"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-11 04:59:07",
+      "job_end_severity": 30,
+      "job_name": "424655/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-10 21:40:28"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-10 03:54:33",
+      "job_end_severity": 30,
+      "job_name": "253750/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-09 21:31:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-09 04:40:01",
+      "job_end_severity": 30,
+      "job_name": "083818/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-08 21:32:19"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-08 04:56:03",
+      "job_end_severity": 30,
+      "job_name": "906981/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-07 21:35:26"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-07 04:41:24",
+      "job_end_severity": 30,
+      "job_name": "749023/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-06 21:32:45"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-06 04:55:32",
+      "job_end_severity": 30,
+      "job_name": "581288/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-05 21:42:53"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-05 04:42:26",
+      "job_end_severity": 30,
+      "job_name": "395305/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-04 21:31:27"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-04 04:47:12",
+      "job_end_severity": 30,
+      "job_name": "200385/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-03 21:34:41"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-03 04:42:47",
+      "job_end_severity": 30,
+      "job_name": "035167/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-02 21:32:24"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-02 04:48:38",
+      "job_end_severity": 30,
+      "job_name": "869565/QHWAUSER/DAILYSWA",
+      "start_time": "2026-09-01 21:36:31"
+    }
+  ],
+  "192.168.1.1": [],
+  "_errors": {
+    "192.168.1.1": {
+      "message": "('HY000', '[HY000] [IBM][System i Access ODBC Driver]Missing system name needed for connection. (30188) (SQLDriverConnect); [HY000] [IBM][System i Access ODBC Driver]Missing system name needed for connection. (30188)')",
+      "timestamp": "2026-09-20T15:52:55"
+    },
+    "192.168.50.130": {
+      "message": "('28000', '[28000] [IBM][System i Access ODBC Driver]Communication link failure. comm rc=8011 - CWBSY0011 - User NOCACCT on system 192.168.50.130 has been disabled, Password length = 7, Prompt Mode = Never, System IP Address = 192.168.50.130 (8011) (SQLDriverConnect); [28000] [IBM][System i Access ODBC Driver]Communication link failure. comm rc=8011 - CWBSY0011 - User NOCACCT on system 192.168.50.130 has been disabled, Password length = 7, Prompt Mode = Never, System IP Address = 192.168.50.130 (8011)')",
+      "timestamp": "2026-09-25T23:22:41"
+    },
+    "192.168.51.30": {
+      "message": "('HYT00', '[HYT00] [IBM][System i Access ODBC Driver]Connection login timed out. (30189) (SQLDriverConnect)')",
+      "timestamp": "2026-09-21T12:54:06"
+    },
+    "192.168.53.30": {
+      "message": "('HYT00', '[HYT00] [IBM][System i Access ODBC Driver]Connection login timed out. (30189) (SQLDriverConnect)')",
+      "timestamp": "2026-09-25T06:13:21"
+    }
+  }
+}

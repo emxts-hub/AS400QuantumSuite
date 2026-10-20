@@ -1,0 +1,1114 @@
+{
+  "192.168.50.130": [],
+  "192.168.56.30": [
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-29 16:23:42",
+      "job_end_severity": 30,
+      "job_name": "080360/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-29 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-28 16:23:45",
+      "job_end_severity": 30,
+      "job_name": "164789/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-28 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-27 16:21:29",
+      "job_end_severity": 30,
+      "job_name": "376988/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-27 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-26 16:22:28",
+      "job_end_severity": 30,
+      "job_name": "734389/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-26 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-25 16:25:16",
+      "job_end_severity": 30,
+      "job_name": "938628/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-25 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-24 16:23:57",
+      "job_end_severity": 30,
+      "job_name": "173671/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-24 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-23 16:20:25",
+      "job_end_severity": 30,
+      "job_name": "362339/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-23 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-22 16:22:53",
+      "job_end_severity": 30,
+      "job_name": "564801/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-22 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-21 16:22:21",
+      "job_end_severity": 30,
+      "job_name": "696661/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-21 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-20 16:20:13",
+      "job_end_severity": 30,
+      "job_name": "004588/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-20 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-19 16:21:28",
+      "job_end_severity": 30,
+      "job_name": "399933/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-19 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-18 16:24:08",
+      "job_end_severity": 30,
+      "job_name": "609484/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-18 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-17 16:28:11",
+      "job_end_severity": 30,
+      "job_name": "833039/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-17 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-16 16:23:37",
+      "job_end_severity": 30,
+      "job_name": "075543/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-16 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-15 16:23:31",
+      "job_end_severity": 30,
+      "job_name": "207982/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-15 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-14 16:28:56",
+      "job_end_severity": 30,
+      "job_name": "290471/QSECOFR/SSD_JRNBKU",
+      "start_time": "2026-09-14 16:00:00"
+    }
+  ],
+  "192.168.54.30": [
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-29 13:15:23",
+      "job_end_severity": 30,
+      "job_name": "922686/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-29 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-28 13:17:54",
+      "job_end_severity": 30,
+      "job_name": "755555/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-28 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-27 13:13:19",
+      "job_end_severity": 30,
+      "job_name": "608445/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-27 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-26 13:11:41",
+      "job_end_severity": 30,
+      "job_name": "468735/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-26 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-25 13:13:04",
+      "job_end_severity": 30,
+      "job_name": "315607/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-25 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-24 13:11:43",
+      "job_end_severity": 30,
+      "job_name": "136652/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-24 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-23 13:13:26",
+      "job_end_severity": 30,
+      "job_name": "996412/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-23 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-22 13:13:45",
+      "job_end_severity": 30,
+      "job_name": "859280/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-22 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-21 13:13:08",
+      "job_end_severity": 30,
+      "job_name": "695190/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-21 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-20 13:12:50",
+      "job_end_severity": 30,
+      "job_name": "563302/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-20 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-19 13:11:29",
+      "job_end_severity": 30,
+      "job_name": "441510/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-19 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-18 13:10:52",
+      "job_end_severity": 30,
+      "job_name": "268519/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-18 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-17 13:11:00",
+      "job_end_severity": 30,
+      "job_name": "124966/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-17 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-16 13:11:45",
+      "job_end_severity": 30,
+      "job_name": "965201/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-16 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-15 13:10:38",
+      "job_end_severity": 30,
+      "job_name": "815201/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-15 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-14 13:11:33",
+      "job_end_severity": 30,
+      "job_name": "678976/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-14 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-12 13:12:22",
+      "job_end_severity": 30,
+      "job_name": "439114/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-12 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-11 13:11:31",
+      "job_end_severity": 30,
+      "job_name": "272192/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-11 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-10 13:11:31",
+      "job_end_severity": 30,
+      "job_name": "119956/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-10 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-09 13:11:46",
+      "job_end_severity": 30,
+      "job_name": "963168/QSECOFR/SWI_JRNBKU",
+      "start_time": "2026-09-09 13:00:00"
+    }
+  ],
+  "192.168.50.30": [
+    {
+      "backup_status": "RUNNING",
+      "end_time": null,
+      "job_end_severity": 30,
+      "job_name": "711693/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-30 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-29 15:38:04",
+      "job_end_severity": 30,
+      "job_name": "583872/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-29 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-28 15:39:03",
+      "job_end_severity": 30,
+      "job_name": "437389/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-28 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-27 15:38:32",
+      "job_end_severity": 30,
+      "job_name": "273444/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-27 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-26 15:38:49",
+      "job_end_severity": 30,
+      "job_name": "090207/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-26 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-25 15:40:35",
+      "job_end_severity": 30,
+      "job_name": "918417/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-25 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-24 15:38:06",
+      "job_end_severity": 30,
+      "job_name": "768295/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-24 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-23 15:39:58",
+      "job_end_severity": 30,
+      "job_name": "621032/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-23 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-22 15:42:02",
+      "job_end_severity": 30,
+      "job_name": "475280/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-22 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-21 15:39:30",
+      "job_end_severity": 30,
+      "job_name": "339619/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-21 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-20 15:38:02",
+      "job_end_severity": 30,
+      "job_name": "173888/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-20 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-19 15:37:21",
+      "job_end_severity": 30,
+      "job_name": "979849/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-19 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-18 15:43:32",
+      "job_end_severity": 30,
+      "job_name": "793319/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-18 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-17 15:46:46",
+      "job_end_severity": 30,
+      "job_name": "615954/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-17 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-16 15:42:47",
+      "job_end_severity": 30,
+      "job_name": "462559/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-16 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-15 15:42:16",
+      "job_end_severity": 30,
+      "job_name": "252290/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-15 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-14 15:42:36",
+      "job_end_severity": 30,
+      "job_name": "077335/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-14 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-12 15:38:04",
+      "job_end_severity": 30,
+      "job_name": "708064/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-12 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-11 15:36:53",
+      "job_end_severity": 30,
+      "job_name": "508470/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-11 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-10 15:38:44",
+      "job_end_severity": 30,
+      "job_name": "323807/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-10 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-09 15:37:45",
+      "job_end_severity": 30,
+      "job_name": "158264/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-09 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-08 15:41:30",
+      "job_end_severity": 30,
+      "job_name": "988145/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-08 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-07 15:37:18",
+      "job_end_severity": 30,
+      "job_name": "825493/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-07 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-06 15:35:58",
+      "job_end_severity": 30,
+      "job_name": "661766/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-06 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-05 15:36:32",
+      "job_end_severity": 30,
+      "job_name": "492984/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-05 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-04 15:40:24",
+      "job_end_severity": 30,
+      "job_name": "292150/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-04 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-03 15:36:19",
+      "job_end_severity": 30,
+      "job_name": "116734/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-03 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-02 15:42:51",
+      "job_end_severity": 30,
+      "job_name": "958933/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-02 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-01 15:40:54",
+      "job_end_severity": 30,
+      "job_name": "787320/QSECOFR/JRNBKUP",
+      "start_time": "2026-09-01 15:05:00"
+    }
+  ],
+  "192.168.53.30": [
+    {
+      "backup_status": "RUNNING",
+      "end_time": null,
+      "job_end_severity": 30,
+      "job_name": "658177/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-30 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-29 16:25:37",
+      "job_end_severity": 30,
+      "job_name": "564690/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-29 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-28 16:25:16",
+      "job_end_severity": 30,
+      "job_name": "097106/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-28 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-27 16:04:41",
+      "job_end_severity": 30,
+      "job_name": "847944/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-27 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-26 16:10:17",
+      "job_end_severity": 30,
+      "job_name": "908698/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-26 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-25 16:19:10",
+      "job_end_severity": 30,
+      "job_name": "690358/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-25 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-24 16:22:48",
+      "job_end_severity": 30,
+      "job_name": "480083/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-24 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-23 16:11:41",
+      "job_end_severity": 30,
+      "job_name": "337712/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-23 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-22 16:26:33",
+      "job_end_severity": 30,
+      "job_name": "192739/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-22 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-21 16:31:53",
+      "job_end_severity": 30,
+      "job_name": "996620/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-21 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-19 16:06:17",
+      "job_end_severity": 30,
+      "job_name": "013817/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-19 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-18 16:15:25",
+      "job_end_severity": 30,
+      "job_name": "860824/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-18 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-17 16:18:58",
+      "job_end_severity": 30,
+      "job_name": "698439/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-17 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-16 16:16:15",
+      "job_end_severity": 30,
+      "job_name": "545526/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-16 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-15 16:24:16",
+      "job_end_severity": 30,
+      "job_name": "321451/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-15 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-14 16:19:10",
+      "job_end_severity": 30,
+      "job_name": "107075/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-14 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-13 16:21:30",
+      "job_end_severity": 30,
+      "job_name": "929997/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-13 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-12 16:09:32",
+      "job_end_severity": 30,
+      "job_name": "100066/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-12 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-11 16:13:05",
+      "job_end_severity": 30,
+      "job_name": "960003/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-11 15:05:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-10 19:52:51",
+      "job_end_severity": 30,
+      "job_name": "233190/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-10 19:52:50"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-10 19:22:26",
+      "job_end_severity": 30,
+      "job_name": "910069/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-10 16:04:29"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-10 15:59:08",
+      "job_end_severity": 30,
+      "job_name": "891075/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-10 15:57:38"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-10 15:54:46",
+      "job_end_severity": 30,
+      "job_name": "864428/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-10 15:37:16"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-09 20:20:40",
+      "job_end_severity": 30,
+      "job_name": "809900/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-09 16:46:27"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-09 16:29:21",
+      "job_end_severity": 30,
+      "job_name": "796075/QSECOFR/RSC_JRNBKU",
+      "start_time": "2026-09-09 16:29:20"
+    }
+  ],
+  "192.168.52.30": [
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-29 16:18:28",
+      "job_end_severity": 30,
+      "job_name": "235476/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-29 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-28 16:17:24",
+      "job_end_severity": 30,
+      "job_name": "769384/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-28 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-27 16:15:40",
+      "job_end_severity": 30,
+      "job_name": "272990/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-27 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-26 16:17:21",
+      "job_end_severity": 30,
+      "job_name": "839121/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-26 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-25 16:18:30",
+      "job_end_severity": 30,
+      "job_name": "387762/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-25 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-24 16:16:28",
+      "job_end_severity": 30,
+      "job_name": "969769/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-24 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-23 16:14:21",
+      "job_end_severity": 30,
+      "job_name": "535785/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-23 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-22 16:15:40",
+      "job_end_severity": 30,
+      "job_name": "229964/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-22 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-21 16:14:59",
+      "job_end_severity": 30,
+      "job_name": "968780/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-21 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-20 16:15:08",
+      "job_end_severity": 30,
+      "job_name": "704518/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-20 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-19 16:15:07",
+      "job_end_severity": 30,
+      "job_name": "456248/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-19 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-18 16:16:21",
+      "job_end_severity": 30,
+      "job_name": "169181/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-18 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-17 16:20:32",
+      "job_end_severity": 30,
+      "job_name": "879514/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-17 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-16 16:15:50",
+      "job_end_severity": 30,
+      "job_name": "617352/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-16 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-15 16:14:16",
+      "job_end_severity": 30,
+      "job_name": "321149/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-15 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-14 16:19:34",
+      "job_end_severity": 30,
+      "job_name": "032243/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-14 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-12 16:13:41",
+      "job_end_severity": 30,
+      "job_name": "537045/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-12 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-11 16:15:33",
+      "job_end_severity": 30,
+      "job_name": "236245/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-11 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-10 16:17:15",
+      "job_end_severity": 30,
+      "job_name": "936762/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-10 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-09 16:15:02",
+      "job_end_severity": 30,
+      "job_name": "667568/QSECOFR/DIY_JRNBKU",
+      "start_time": "2026-09-09 16:00:00"
+    }
+  ],
+  "192.168.55.30": [
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-29 16:18:27",
+      "job_end_severity": 30,
+      "job_name": "880163/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-29 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-28 16:20:12",
+      "job_end_severity": 30,
+      "job_name": "876267/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-28 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-27 16:19:06",
+      "job_end_severity": 30,
+      "job_name": "717068/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-27 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-26 16:19:06",
+      "job_end_severity": 30,
+      "job_name": "503565/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-26 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-25 16:20:35",
+      "job_end_severity": 30,
+      "job_name": "265689/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-25 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-24 16:19:06",
+      "job_end_severity": 30,
+      "job_name": "958128/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-24 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-23 16:17:47",
+      "job_end_severity": 30,
+      "job_name": "675955/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-23 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-22 16:18:57",
+      "job_end_severity": 30,
+      "job_name": "331491/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-22 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-21 16:17:17",
+      "job_end_severity": 30,
+      "job_name": "971749/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-21 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-20 16:18:58",
+      "job_end_severity": 30,
+      "job_name": "638530/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-20 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-19 16:18:39",
+      "job_end_severity": 30,
+      "job_name": "225174/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-19 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-18 16:20:41",
+      "job_end_severity": 30,
+      "job_name": "827812/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-18 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-17 16:20:30",
+      "job_end_severity": 30,
+      "job_name": "497381/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-17 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-16 16:19:51",
+      "job_end_severity": 30,
+      "job_name": "147187/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-16 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-15 16:19:52",
+      "job_end_severity": 30,
+      "job_name": "845067/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-15 16:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-14 16:24:33",
+      "job_end_severity": 30,
+      "job_name": "532912/QSECOFR/UJ_JRNBKU",
+      "start_time": "2026-09-14 16:00:00"
+    }
+  ],
+  "192.168.51.30": [
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-30 13:10:42",
+      "job_end_severity": 30,
+      "job_name": "593908/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-30 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-29 13:09:57",
+      "job_end_severity": 30,
+      "job_name": "487572/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-29 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-28 13:10:26",
+      "job_end_severity": 30,
+      "job_name": "362660/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-28 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-26 13:08:01",
+      "job_end_severity": 30,
+      "job_name": "224795/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-26 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-25 13:07:42",
+      "job_end_severity": 30,
+      "job_name": "150848/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-25 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-24 13:06:55",
+      "job_end_severity": 30,
+      "job_name": "055535/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-24 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-23 13:06:12",
+      "job_end_severity": 30,
+      "job_name": "958181/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-23 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-22 13:05:34",
+      "job_end_severity": 30,
+      "job_name": "856445/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-22 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-21 13:04:45",
+      "job_end_severity": 30,
+      "job_name": "712682/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-21 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-20 13:04:04",
+      "job_end_severity": 30,
+      "job_name": "641194/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-20 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-19 13:40:04",
+      "job_end_severity": 30,
+      "job_name": "592025/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-19 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-18 13:35:59",
+      "job_end_severity": 30,
+      "job_name": "500764/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-18 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-17 13:36:03",
+      "job_end_severity": 30,
+      "job_name": "398641/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-17 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-16 13:36:55",
+      "job_end_severity": 30,
+      "job_name": "284270/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-16 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-15 13:39:12",
+      "job_end_severity": 30,
+      "job_name": "188203/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-15 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-14 13:35:32",
+      "job_end_severity": 30,
+      "job_name": "068734/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-14 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-12 13:34:20",
+      "job_end_severity": 30,
+      "job_name": "943142/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-12 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-11 13:33:25",
+      "job_end_severity": 30,
+      "job_name": "851958/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-11 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-10 13:36:40",
+      "job_end_severity": 30,
+      "job_name": "741354/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-10 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-09 13:32:09",
+      "job_end_severity": 30,
+      "job_name": "650143/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-09 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-08 13:35:29",
+      "job_end_severity": 30,
+      "job_name": "520007/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-08 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-07 13:32:51",
+      "job_end_severity": 30,
+      "job_name": "392481/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-07 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-06 13:29:21",
+      "job_end_severity": 30,
+      "job_name": "287653/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-06 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-05 13:34:09",
+      "job_end_severity": 30,
+      "job_name": "230795/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-05 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-04 13:31:41",
+      "job_end_severity": 30,
+      "job_name": "139009/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-04 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-03 13:31:57",
+      "job_end_severity": 30,
+      "job_name": "031765/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-03 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-02 13:38:08",
+      "job_end_severity": 30,
+      "job_name": "824528/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-02 13:00:00"
+    },
+    {
+      "backup_status": "COMPLETED WITH WARNINGS",
+      "end_time": "2026-09-01 13:30:49",
+      "job_end_severity": 30,
+      "job_name": "722755/QSECOFR/ROS_JRNBKU",
+      "start_time": "2026-09-01 13:00:00"
+    }
+  ],
+  "192.168.1.1": [],
+  "_errors": {
+    "192.168.1.1": {
+      "message": "('HY000', '[HY000] [IBM][System i Access ODBC Driver]Missing system name needed for connection. (30188) (SQLDriverConnect); [HY000] [IBM][System i Access ODBC Driver]Missing system name needed for connection. (30188)')",
+      "timestamp": "2026-09-20T15:52:55"
+    },
+    "192.168.50.130": {
+      "message": "('28000', '[28000] [IBM][System i Access ODBC Driver]Communication link failure. comm rc=8011 - CWBSY0011 - User NOCACCT on system 192.168.50.130 has been disabled, Password length = 7, Prompt Mode = Never, System IP Address = 192.168.50.130 (8011) (SQLDriverConnect); [28000] [IBM][System i Access ODBC Driver]Communication link failure. comm rc=8011 - CWBSY0011 - User NOCACCT on system 192.168.50.130 has been disabled, Password length = 7, Prompt Mode = Never, System IP Address = 192.168.50.130 (8011)')",
+      "timestamp": "2026-09-25T23:22:42"
+    },
+    "192.168.51.30": {
+      "message": "('HYT00', '[HYT00] [IBM][System i Access ODBC Driver]Connection login timed out. (30189) (SQLDriverConnect)')",
+      "timestamp": "2026-09-21T12:54:10"
+    },
+    "192.168.53.30": {
+      "message": "('HYT00', '[HYT00] [IBM][System i Access ODBC Driver]Connection login timed out. (30189) (SQLDriverConnect)')",
+      "timestamp": "2026-09-25T06:13:18"
+    }
+  }
+}
