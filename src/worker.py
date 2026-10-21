@@ -578,8 +578,12 @@ def _fetch_top_temporary_storage_jobs(cursor):
     ]
 
 
+def _normalize_web_app_job_name(name):
+    return str(name or "").strip().upper().replace(" ", "_")
+
+
 def _fetch_web_app_jobs(cursor, configured_web_apps):
-    app_names = set()
+    app_names = {}
     for entry in configured_web_apps or []:
         if isinstance(entry, dict):
             app_name = entry.get("job_name") or entry.get("name") or entry.get("job") or ""
@@ -589,7 +593,7 @@ def _fetch_web_app_jobs(cursor, configured_web_apps):
             continue
         normalized_name = str(app_name).strip().upper()
         if normalized_name:
-            app_names.add(normalized_name)
+            app_names[normalized_name] = _normalize_web_app_job_name(normalized_name)
 
     query = """
         SELECT
@@ -603,8 +607,8 @@ def _fetch_web_app_jobs(cursor, configured_web_apps):
         ))
     """
     jobs_by_app = {}
-    for app_name in sorted(app_names):
-        cursor.execute(query, (f"{app_name}*",))
+    for app_name, job_name in sorted(app_names.items()):
+        cursor.execute(query, (f"{job_name}*",))
         matching_jobs = []
         for row in cursor.fetchall():
             job = {
@@ -613,7 +617,7 @@ def _fetch_web_app_jobs(cursor, configured_web_apps):
                 "temporary_storage": row[2] if row[2] is not None else 0,
                 "cpu_time": row[3] if row[3] is not None else 0,
             }
-            if job["job_name"].rsplit("/", 1)[-1].strip().upper() == app_name:
+            if _normalize_web_app_job_name(job["job_name"].rsplit("/", 1)[-1]) == job_name:
                 matching_jobs.append(job)
         jobs_by_app[app_name] = matching_jobs
     return jobs_by_app
@@ -705,9 +709,9 @@ def _fetch_web_app_jobs_after_port_check(cursor, web_app_ports, active_jobs_deta
             if not isinstance(job, dict):
                 continue
             job_name = str(job.get("job_name") or "").strip()
-            unqualified_name = job_name.rsplit("/", 1)[-1].upper()
+            unqualified_name = _normalize_web_app_job_name(job_name.rsplit("/", 1)[-1])
             normalized_job_name = job_name.upper()
-            if unqualified_name == app_name and normalized_job_name not in known_job_names:
+            if unqualified_name == _normalize_web_app_job_name(app_name) and normalized_job_name not in known_job_names:
                 app_jobs.append(job)
                 known_job_names.add(normalized_job_name)
 

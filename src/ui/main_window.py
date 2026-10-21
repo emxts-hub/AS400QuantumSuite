@@ -148,12 +148,17 @@ def build_web_app_rows(active_jobs_detail, ports_data, configured_web_apps=None)
         port_entry = verified_ports.get((row["name"], row["port"]))
         row["status"] = "RUNNING" if port_entry and port_entry.get("is_up") is True else "DOWN"
 
+    app_names_by_job_name = {}
+    for row in configured_rows:
+        app_names_by_job_name[worker._normalize_web_app_job_name(row["name"])] = row["name"]
+
     job_counts = {}
     for job in jobs:
         if not isinstance(job, dict):
             continue
-        name = str(job.get("job_name") or "").strip().upper()
-        if not name:
+        raw_name = str(job.get("job_name") or "").strip()
+        name = worker._normalize_web_app_job_name(raw_name.rsplit("/", 1)[-1])
+        if name not in app_names_by_job_name:
             continue
         job_counts[name] = job_counts.get(name, 0) + 1
 
@@ -161,7 +166,7 @@ def build_web_app_rows(active_jobs_detail, ports_data, configured_web_apps=None)
     for item in ports:
         if not isinstance(item, dict):
             continue
-        name = str(item.get("name") or item.get("service") or "").strip().upper()
+        name = worker._normalize_web_app_job_name(item.get("name") or item.get("service") or "")
         port_num = item.get("port")
         if name and port_num is not None:
             try:
@@ -179,7 +184,7 @@ def build_web_app_rows(active_jobs_detail, ports_data, configured_web_apps=None)
         for item in ports:
             if not isinstance(item, dict):
                 continue
-            name = str(item.get("name") or item.get("service") or "").strip().upper()
+            name = worker._normalize_web_app_job_name(item.get("name") or item.get("service") or "")
             if name == app_name:
                 port_entry = item
                 port_num = item.get("port")
@@ -190,9 +195,10 @@ def build_web_app_rows(active_jobs_detail, ports_data, configured_web_apps=None)
             status = "INVALID"
         else:
             status = "RUNNING" if bool(port_entry.get("is_up", False) if isinstance(port_entry, dict) else False) else "DOWN"
-        key = (app_name, port_num)
+        display_name = app_names_by_job_name.get(app_name, app_name)
+        key = (display_name, port_num)
         rows_by_key[key] = {
-            "name": app_name,
+            "name": display_name,
             "port": port_num,
             "count": max(int(rows_by_key.get(key, {}).get("count", 0)), int(count)),
             "status": status,
@@ -1002,7 +1008,10 @@ class LparCardWidget(QFrame):
                 if not isinstance(job, dict):
                     continue
                 job_name = str(job.get("job_name") or "").strip()
-                if job_name.rsplit("/", 1)[-1].upper() != app_name:
+                if (
+                    worker._normalize_web_app_job_name(job_name.rsplit("/", 1)[-1])
+                    != worker._normalize_web_app_job_name(app_name)
+                ):
                     continue
                 if job_name.upper() not in known_names:
                     app_jobs.append(job)
