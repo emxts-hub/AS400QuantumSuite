@@ -1,3 +1,4 @@
+import ipaddress
 import math
 import os
 import zipfile
@@ -89,15 +90,24 @@ def _parse_record(record):
     except (TypeError, ValueError):
         return None, f"Invalid record timestamp for Excel export: {timestamp!r}"
 
-    sheet_name = str(
-        record.get("host_name")
-        or record.get("lpar")
-        or record.get("server")
-        or record.get("config_key")
-        or ""
-    ).strip()
+    sheet_name = ""
+    for candidate in (
+        record.get("host_name"),
+        record.get("server_name"),
+        record.get("server"),
+        record.get("lpar"),
+        record.get("config_key"),
+    ):
+        candidate_name = str(candidate or "").strip()
+        if not candidate_name:
+            continue
+        try:
+            ipaddress.ip_address(candidate_name)
+        except ValueError:
+            sheet_name = candidate_name
+            break
     if not sheet_name:
-        return None, "Record has no server name for Excel worksheet selection"
+        return None, "Record has no non-IP server name for Excel worksheet selection"
 
     values = {}
     for metric in ("asp", "cpu"):
@@ -228,5 +238,61 @@ def push_metrics_to_excel(records):
             InvalidFileException,
         ) as exc:
             errors.append(f"{metric.upper()} Excel batch update failed: {exc}")
+
+    return errors
+
+
+def push_daily_metrics_to_excel(records):
+    """Replay a day's server readings while opening each shared workbook only once."""
+    if isinstance(records, dict):
+        records = [records]
+
+    parsed_records = []
+    errors = []
+    for record in records:
+        parsed, error = _parse_record(record)
+        if error:
+            errors.append(f"Excel export failed: {error}")
+        else:
+            parsed_records.append(parsed)
+
+    if errors:
+        return errors
+    if not parsed_records:
+        return errors
+
+    years = {record["recorded_at"].strftime("%Y") for record in parsed_records}
+    dates = {record["recorded_at"].date() for record in parsed_records}
+    if len(years) != 1 or len(dates) != 1:
+        return errors + ["Excel catch-up batch must contain readings from one day"]
+    year = years.pop()
+
+    for metric in ("asp", "cpu"):
+        workbook_path = config.get_excel_workbook_path(metric, year)
+        try:
+            updated_count, skipped_records = _update_workbook_batch(
+                workbook_path,
+                metric,
+                parsed_records,
+            )
+            if updated_count:
+                errors.append(
+                    f"{metric.upper()} Excel daily batch updated: "
+                    f"{updated_count} server-hour(s)"
+                )
+            if skipped_records:
+                errors.append(
+                    f"{metric.upper()} Excel daily batch skipped: "
+                    f"{len(skipped_records)} existing cell(s)"
+                )
+        except (
+            KeyError,
+            OSError,
+            TypeError,
+            ValueError,
+            zipfile.BadZipFile,
+            InvalidFileException,
+        ) as exc:
+            errors.append(f"{metric.upper()} Excel daily batch update failed: {exc}")
 
     return errors

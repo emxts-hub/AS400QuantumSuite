@@ -14,8 +14,8 @@ from config import APP_VERSION, APP_NAME, parse_version
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from PyQt6.QtCore import Qt, QTimer, QThread, QThreadPool, QRunnable, QObject, QPointF, QPropertyAnimation, QAbstractAnimation, pyqtProperty, QSize, QByteArray, pyqtSignal, QEvent, QUrl
-from PyQt6.QtGui import QColor, QFont, QCursor, QIcon, QPixmap, QPainter, QPen, QPolygonF, QBrush, QMouseEvent, QDesktopServices
+from PyQt6.QtCore import Qt, QTimer, QThread, QThreadPool, QRunnable, QObject, QPointF, QPropertyAnimation, QAbstractAnimation, pyqtProperty, QSize, QByteArray, pyqtSignal, QEvent
+from PyQt6.QtGui import QColor, QFont, QCursor, QIcon, QPixmap, QPainter, QPen, QPolygonF, QBrush, QMouseEvent
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
@@ -49,7 +49,7 @@ from dialogs import (
     get_save_file_name, show_critical_dialog,
     show_information_dialog, show_warning_dialog,
 )
-from version_worker import VersionCheckWorker
+from version_worker import UpdateDownloadWorker, VersionCheckWorker
 from config import (
     ASP_WORKBOOK_PATH,
     CPU_WORKBOOK_PATH,
@@ -1716,12 +1716,14 @@ class GatewayPingRunnable(QRunnable):
 class IBMiDashboard(QMainWindow):
     _version_worker: VersionCheckWorker | None
     _settings_version_worker: VersionCheckWorker | None
+    _update_download_worker: UpdateDownloadWorker | None
 
     def __init__(self, version_str: str = APP_VERSION):
         super().__init__()
         self.system_log_handler = SYSTEM_LOG_HANDLER
         self._version_worker = None
         self._settings_version_worker = None
+        self._update_download_worker = None
         self._update_download_url = ""
         self.version_str = version_str
         self.setWindowTitle(f"{APP_NAME} - v{version_str}")
@@ -1977,9 +1979,6 @@ class IBMiDashboard(QMainWindow):
 
         self._create_startup_loading_overlay()
 
-        # Postpone background log loading to after the UI loop initializes
-        QTimer.singleShot(300, self.post_init_tasks)
-
     def _create_startup_loading_overlay(self):
         self.startup_loading_overlay = QFrame(self)
         self.startup_loading_overlay.setStyleSheet(
@@ -1991,9 +1990,11 @@ class IBMiDashboard(QMainWindow):
         overlay_layout = QVBoxLayout(self.startup_loading_overlay)
         overlay_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         overlay_layout.setContentsMargins(0, 0, 0, 0)
-        loading_label = QLabel("Loading dashboard...")
+        loading_label = QLabel("Preparing startup logs...\nPlease wait.")
         loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        loading_label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         overlay_layout.addWidget(loading_label)
+        self.central_widget.setEnabled(False)
         self.startup_loading_overlay.setGeometry(self.rect())
         self.startup_loading_overlay.raise_()
         self.startup_loading_overlay.show()
@@ -2040,7 +2041,6 @@ class IBMiDashboard(QMainWindow):
                 button.setChecked(key == page_key)
             self._update_nav_button_styles(page_key)
             if page_key == "log_viewer":
-                self.log_viewer_widget._setup_file_watcher()
                 self.log_viewer_widget.load_log_history(silent=True)
             if page_key == "settings" and self.is_monitoring:
                 self.status_label.setText("Status: Stop monitoring to edit settings.")
@@ -2615,7 +2615,7 @@ class IBMiDashboard(QMainWindow):
         update_copy = QVBoxLayout()
         update_title = QLabel("Application Updates")
         update_title.setObjectName("settingsSectionTitle")
-        update_description = QLabel("Check whether a newer version of the application is available.")
+        update_description = QLabel("Check for updates and download the latest installer.")
         update_description.setObjectName("settingsMutedText")
         self.update_status_label = QLabel(f"Current version: v{self.version_str}")
         self.update_status_label.setObjectName("settingsMutedText")
@@ -2636,7 +2636,7 @@ class IBMiDashboard(QMainWindow):
         self.download_update_btn.setObjectName("settingsPrimaryButton")
         self.download_update_btn.setFixedHeight(35)
         self.download_update_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.download_update_btn.clicked.connect(self.open_update_download)
+        self.download_update_btn.clicked.connect(self.download_update)
         self.download_update_btn.setVisible(False)
         update_row.addWidget(self.download_update_btn)
         system_layout.addLayout(update_row)
@@ -2956,18 +2956,15 @@ class IBMiDashboard(QMainWindow):
                 self._analytics_tab_icon(index),
             )
 
-    def _append_system_log(self, message):
-        self.cred_log.appendPlainText(message)
-        scrollbar = self.cred_log.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
-
     def _drain_system_log(self):
         next_record_id, messages = self.system_log_handler.records_since(
             self._system_log_record_id
         )
         self._system_log_record_id = next_record_id
-        for message in messages:
-            self._append_system_log(message)
+        if messages:
+            self.cred_log.appendPlainText("\n".join(messages))
+            scrollbar = self.cred_log.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())
 
     def clear_system_logs(self):
         choice = ask_question_dialog(
@@ -3075,19 +3072,76 @@ class IBMiDashboard(QMainWindow):
         )
         SYSTEM_LOGGER.info("Application is up to date at v%s", self.version_str)
 
-    def open_update_download(self):
-        if not self._update_download_url:
+    def download_update(self):
+        if not self._update_download_url or (
+            self._update_download_worker and self._update_download_worker.isRunning()
+        ):
             return
-        if not QDesktopServices.openUrl(QUrl(self._update_download_url)):
-            SYSTEM_LOGGER.error(
-                "Could not open application update URL: %s",
-                self._update_download_url,
+
+        download_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+        if not os.path.isdir(download_dir):
+            download_dir = os.path.expanduser("~")
+        destination, _ = get_save_file_name(
+            self,
+            "Download application update",
+            os.path.join(download_dir, "AS400QuantumSuite-Setup.exe"),
+            "Windows Installer (*.exe)",
+        )
+        if not destination:
+            return
+        if not destination.lower().endswith(".exe"):
+            destination += ".exe"
+
+        self.download_update_btn.setEnabled(False)
+        self.download_update_btn.setText("Downloading...")
+        self.update_status_label.setText("Starting update download...")
+        self._update_download_worker = UpdateDownloadWorker(
+            self._update_download_url,
+            destination,
+        )
+        self._update_download_worker.download_progress.connect(
+            self._show_update_download_progress
+        )
+        self._update_download_worker.download_finished.connect(
+            self._handle_update_download_finished
+        )
+        self._update_download_worker.finished.connect(
+            self._finish_update_download
+        )
+        self._update_download_worker.start()
+
+    def _show_update_download_progress(self, downloaded_bytes, total_bytes):
+        if total_bytes > 0:
+            percent = min(100, int(downloaded_bytes * 100 / total_bytes))
+            self.update_status_label.setText(f"Downloading update: {percent}%")
+        else:
+            downloaded_mb = downloaded_bytes / (1024 * 1024)
+            self.update_status_label.setText(
+                f"Downloading update: {downloaded_mb:.1f} MB"
             )
+
+    def _handle_update_download_finished(self, success, destination, error):
+        if success:
+            self.update_status_label.setText(f"Update downloaded to: {destination}")
+            SYSTEM_LOGGER.info("Application update downloaded to %s", destination)
+            show_information_dialog(
+                self,
+                "Update Downloaded",
+                f"The installer has been downloaded to:\n{destination}",
+            )
+        else:
+            self.update_status_label.setText(f"Update download failed: {error}")
+            SYSTEM_LOGGER.error("Application update download failed: %s", error)
             show_warning_dialog(
                 self,
-                "Unable to Open Download Page",
-                "The update page could not be opened. Please try again later.",
+                "Unable to Download Update",
+                f"The installer could not be downloaded:\n{error}",
             )
+
+    def _finish_update_download(self):
+        self.download_update_btn.setEnabled(True)
+        self.download_update_btn.setText("Download Update")
+        self._update_download_worker = None
 
     def backup_settings(self):
         target_path, _ = get_save_file_name(
@@ -3695,13 +3749,10 @@ class IBMiDashboard(QMainWindow):
                 silent=True,
             )
 
-    def post_init_tasks(self):
-        """Perform non-blocking operations after UI layout is painted."""
-        QTimer.singleShot(1200, self._finish_startup_loading)
-
     def _finish_startup_loading(self):
         if hasattr(self, "startup_loading_overlay"):
             self.startup_loading_overlay.hide()
+            self.central_widget.setEnabled(True)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

@@ -2,38 +2,57 @@
   "192.168.50.130": [],
   "_errors": {
     "192.168.50.130": {
-      "message": "('42000', '[42000] [IBM][System i Access ODBC Driver][DB2 for i5/OS]SQL0418 - Use of parameter marker, NULL, or UNKNOWN not valid. (-418) (SQLPrepare)')",
-      "timestamp": "2026-10-12T08:34:17"
-    },
-    "192.168.56.30": {
       "message": "('HYT00', '[HYT00] [IBM][System i Access ODBC Driver]Connection login timed out. (30189) (SQLDriverConnect)')",
-      "timestamp": "2026-10-11T17:15:00"
-    },
-    "192.168.55.30": {
-      "message": "('42000', '[42000] [IBM][System i Access ODBC Driver][DB2 for i5/OS]SQL0418 - Use of parameter marker, NULL, or UNKNOWN not valid. (-418) (SQLPrepare)')",
-      "timestamp": "2026-10-11T15:05:23"
-    },
-    "192.168.50.30": {
-      "message": "('42000', '[42000] [IBM][System i Access ODBC Driver][DB2 for i5/OS]SQL0418 - Use of parameter marker, NULL, or UNKNOWN not valid. (-418) (SQLPrepare)')",
-      "timestamp": "2026-10-11T15:05:55"
-    },
-    "192.168.54.30": {
-      "message": "('42000', '[42000] [IBM][System i Access ODBC Driver][DB2 for i5/OS]SQL0418 - Use of parameter marker, NULL, or UNKNOWN not valid. (-418) (SQLPrepare)')",
-      "timestamp": "2026-10-11T15:05:54"
-    },
-    "192.168.52.30": {
-      "message": "('42000', '[42000] [IBM][System i Access ODBC Driver][DB2 for i5/OS]SQL0418 - Use of parameter marker, NULL, or UNKNOWN not valid. (-418) (SQLPrepare)')",
-      "timestamp": "2026-10-11T15:05:57"
+      "timestamp": "2026-10-22T20:30:20"
     },
     "192.168.51.30": {
       "message": "('HYT00', '[HYT00] [IBM][System i Access ODBC Driver]Connection login timed out. (30189) (SQLDriverConnect)')",
-      "timestamp": "2026-10-11T16:21:00"
+      "timestamp": "2026-10-16T22:06:00"
     },
     "192.168.53.30": {
-      "message": "('42000', '[42000] [IBM][System i Access ODBC Driver][DB2 for i5/OS]SQL0418 - Use of parameter marker, NULL, or UNKNOWN not valid. (-418) (SQLPrepare)')",
-      "timestamp": "2026-10-11T15:05:55"
+      "message": "('HYT00', '[HYT00] [IBM][System i Access ODBC Driver]Connection login timed out. (30189) (SQLDriverConnect)')",
+      "timestamp": "2026-10-19T18:02:17"
+    },
+    "192.168.56.30": {
+      "message": "('HYT00', '[HYT00] [IBM][System i Access ODBC Driver]Connection login timed out. (30189) (SQLDriverConnect)')",
+      "timestamp": "2026-10-21T14:07:57"
+    },
+    "192.168.55.30": {
+      "message": "('HYT00', '[HYT00] [IBM][System i Access ODBC Driver]Connection login timed out. (30189) (SQLDriverConnect)')",
+      "timestamp": "2026-10-21T14:08:01"
+    },
+    "192.168.50.30": {
+      "message": "('HYT00', '[HYT00] [IBM][System i Access ODBC Driver]Connection login timed out. (30189) (SQLDriverConnect)')",
+      "timestamp": "2026-10-21T14:08:05"
     }
   },
+  "192.168.50.30": [
+    {
+      "duration_seconds": 35852,
+      "end_time": "2026-10-11 20:03:38.832569",
+      "has_completion_errors": 1,
+      "job_name": "MONTHLYBKU",
+      "start_time": "2026-10-11 10:06:06.590150"
+    }
+  ],
+  "192.168.52.30": [
+    {
+      "duration_seconds": 35833,
+      "end_time": "2026-10-11 20:04:03.623616",
+      "has_completion_errors": 1,
+      "job_name": "MONTHLYBKU",
+      "start_time": "2026-10-11 10:06:50.476033"
+    }
+  ],
+  "192.168.54.30": [
+    {
+      "duration_seconds": 22040,
+      "end_time": "2026-10-11 16:14:52.146758",
+      "has_completion_errors": 0,
+      "job_name": "MONTHLYBKU",
+      "start_time": "2026-10-11 10:07:32.082628"
+    }
+  ],
   "192.168.56.30": [
     {
       "duration_seconds": 32972,
@@ -45,34 +64,20 @@
   ],
   "192.168.55.30": [
     {
+      "duration_seconds": 49044,
       "end_time": "2026-10-11 23:45:35.112731",
       "has_completion_errors": 1,
       "job_name": "MONTHLYBKU",
       "start_time": "2026-10-11 10:08:11.057663"
     }
   ],
-  "192.168.50.30": [
+  "192.168.53.30": [
     {
-      "end_time": "2026-10-11 20:03:38.832569",
+      "duration_seconds": 84207,
+      "end_time": "2026-10-12 09:39:01.379751",
       "has_completion_errors": 1,
       "job_name": "MONTHLYBKU",
-      "start_time": "2026-10-11 10:06:06.590150"
-    }
-  ],
-  "192.168.54.30": [
-    {
-      "end_time": "2026-10-11 16:14:52.146758",
-      "has_completion_errors": 0,
-      "job_name": "MONTHLYBKU",
-      "start_time": "2026-10-11 10:07:32.082628"
-    }
-  ],
-  "192.168.52.30": [
-    {
-      "end_time": "2026-10-11 20:04:03.623616",
-      "has_completion_errors": 1,
-      "job_name": "MONTHLYBKU",
-      "start_time": "2026-10-11 10:06:50.476033"
+      "start_time": "2026-10-11 10:15:33.829569"
     }
   ],
   "192.168.51.30": [
@@ -82,15 +87,6 @@
       "has_completion_errors": 0,
       "job_name": "MONTHLYBKU",
       "start_time": "2026-10-11 10:13:55.604693"
-    }
-  ],
-  "192.168.53.30": [
-    {
-      "duration_seconds": null,
-      "end_time": null,
-      "has_completion_errors": 0,
-      "job_name": "MONTHLYBKU",
-      "start_time": "2026-10-11 10:15:33.829569"
     }
   ]
 }

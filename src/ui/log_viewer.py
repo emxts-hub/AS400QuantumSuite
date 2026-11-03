@@ -79,86 +79,119 @@ class LogHistoryLoadSignals(QObject):
 
 
 class LogHistoryLoader(QRunnable):
-    def __init__(self, target_dirs, active_lpars, signals):
+    def __init__(
+        self,
+        active_lpars,
+        signals,
+        previous_signature=None,
+        can_skip_loading=False,
+    ):
         super().__init__()
-        self.target_dirs = list(target_dirs or [])
         self.active_lpars = sorted({
             LogViewerWidget._normalize_server_name(name)
             for name in active_lpars
             if LogViewerWidget._normalize_server_name(name)
         })
         self.signals = signals
+        self.previous_signature = previous_signature
+        self.can_skip_loading = can_skip_loading
 
     def run(self):
         try:
+            target_dirs = get_all_logs_dirs()
+            log_files = {}
+            for target_dir in target_dirs:
+                if not os.path.exists(target_dir):
+                    continue
+                try:
+                    files = [
+                        file_name for file_name in os.listdir(target_dir)
+                        if file_name.endswith(".json")
+                        and file_name.startswith("lpar_history_")
+                    ]
+                except OSError:
+                    continue
+
+                for file_name in sorted(files):
+                    file_path = os.path.join(target_dir, file_name)
+                    try:
+                        log_files[file_path] = (
+                            os.path.getmtime(file_path),
+                            os.path.getsize(file_path),
+                        )
+                    except OSError:
+                        continue
+
+            if self.can_skip_loading and log_files == self.previous_signature:
+                self.signals.finished.emit({
+                    "unchanged": True,
+                    "log_scan_signature": log_files,
+                    "target_dirs": target_dirs,
+                })
+                return
+
             log_data_store = {}
             processed_batches = set()
             discovered_lpars = set(self.active_lpars)
 
-            for target_dir in self.target_dirs:
-                if not os.path.exists(target_dir):
+            for file_path in sorted(log_files):
+                target_dir, file_name = os.path.split(file_path)
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+
+                    batches = []
+                    if isinstance(data, list):
+                        for item in data:
+                            if isinstance(item, dict) and "records" in item:
+                                records = item.get("records", [])
+                                if not isinstance(records, list):
+                                    records = [records] if isinstance(records, dict) else []
+                                batches.append((item.get("timestamp", ""), records))
+                            elif isinstance(item, dict):
+                                batches.append((item.get("timestamp", ""), [item]))
+                    elif isinstance(data, dict):
+                        records = data.get("records", [])
+                        if not isinstance(records, list):
+                            records = [records] if isinstance(records, dict) else []
+                        batches.append((data.get("timestamp", ""), records))
+
+                    for batch_index, (ts, records) in enumerate(batches):
+                        if not ts:
+                            continue
+
+                        date_key = ts[:10] if len(ts) >= 10 else date.today().strftime("%Y-%m-%d")
+                        if date_key not in log_data_store:
+                            log_data_store[date_key] = []
+
+                        for record in records:
+                            if isinstance(record, dict):
+                                name = LogViewerWidget._normalize_server_name(
+                                    record.get("host_name") or record.get("server_name") or
+                                    record.get("lpar") or record.get("server")
+                                )
+                                if name:
+                                    discovered_lpars.add(name)
+
+                        record_ids = ",".join(
+                            str(record.get("entry_id", ""))
+                            for record in records
+                            if isinstance(record, dict)
+                        )
+                        batch_signature = f"{target_dir}_{file_name}_{date_key}_{ts}_{record_ids or batch_index}"
+                        if batch_signature not in processed_batches:
+                            log_data_store[date_key].append((ts, records))
+                            processed_batches.add(batch_signature)
+                except Exception:
                     continue
-                files = [
-                    f for f in os.listdir(target_dir)
-                    if f.endswith(".json") and f.startswith("lpar_history_")
-                ]
-                files.sort()
-
-                for file_name in files:
-                    file_path = os.path.join(target_dir, file_name)
-                    try:
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            data = json.load(f)
-
-                        batches = []
-                        if isinstance(data, list):
-                            for item in data:
-                                if isinstance(item, dict) and "records" in item:
-                                    records = item.get("records", [])
-                                    if not isinstance(records, list):
-                                        records = [records] if isinstance(records, dict) else []
-                                    batches.append((item.get("timestamp", ""), records))
-                                elif isinstance(item, dict):
-                                    batches.append((item.get("timestamp", ""), [item]))
-                        elif isinstance(data, dict):
-                            records = data.get("records", [])
-                            if not isinstance(records, list):
-                                records = [records] if isinstance(records, dict) else []
-                            batches.append((data.get("timestamp", ""), records))
-
-                        for batch_index, (ts, records) in enumerate(batches):
-                            if not ts:
-                                continue
-
-                            date_key = ts[:10] if len(ts) >= 10 else date.today().strftime("%Y-%m-%d")
-                            if date_key not in log_data_store:
-                                log_data_store[date_key] = []
-
-                            for record in records:
-                                if isinstance(record, dict):
-                                    name = LogViewerWidget._normalize_server_name(
-                                        record.get("host_name") or record.get("server_name") or
-                                        record.get("lpar") or record.get("server")
-                                    )
-                                    if name:
-                                        discovered_lpars.add(name)
-
-                            record_ids = ",".join(
-                                str(record.get("entry_id", ""))
-                                for record in records
-                                if isinstance(record, dict)
-                            )
-                            batch_signature = f"{target_dir}_{file_name}_{date_key}_{ts}_{record_ids or batch_index}"
-                            if batch_signature not in processed_batches:
-                                log_data_store[date_key].append((ts, records))
-                                processed_batches.add(batch_signature)
-                    except Exception:
-                        continue
 
             self.signals.finished.emit({
+                "unchanged": False,
                 "log_data_store": log_data_store,
                 "processed_batches": processed_batches,
                 "active_lpars": sorted(discovered_lpars),
+                "log_scan_signature": log_files,
+                "target_dirs": target_dirs,
             })
         except Exception as err:
             self.signals.error.emit(str(err))
@@ -213,6 +246,7 @@ class LogViewerWidget(QWidget):
         self._history_loading = False
         self._history_reload_pending = False
         self._history_reload_force = False
+        self._has_loaded_history = False
         self._history_thread_pool = QThreadPool(self)
         self._history_thread_pool.setMaxThreadCount(1)
         self._last_log_scan_signature = None
@@ -524,15 +558,15 @@ class LogViewerWidget(QWidget):
             self.loading_overlay.set_theme(is_dark_theme)
         self.populate_views()
 
-    def _setup_file_watcher(self):
-        for logs_dir in get_all_logs_dirs():
-            if os.path.exists(logs_dir) and logs_dir not in self.file_watcher.directories():
-                self.file_watcher.addPath(logs_dir)
+    def _setup_file_watcher(self, target_dirs):
+        watched_dirs = set(self.file_watcher.directories())
+        for logs_dir in target_dirs:
+            if logs_dir not in watched_dirs and self.file_watcher.addPath(logs_dir):
+                watched_dirs.add(logs_dir)
 
     def _on_logs_changed(self, path):
         if not self.isVisible():
             return
-        self._setup_file_watcher()
         self.reload_timer.start()
 
     def _update_last_refresh_timestamp(self):
@@ -649,6 +683,15 @@ class LogViewerWidget(QWidget):
 
     def _on_history_loaded(self, result):
         self._history_loading = False
+        self._last_log_scan_signature = result.get("log_scan_signature", {})
+        self._has_loaded_history = True
+        self._setup_file_watcher(result.get("target_dirs", []))
+
+        if result.get("unchanged"):
+            self._update_last_refresh_timestamp()
+            self._hide_loading()
+            self._load_pending_history_reload()
+            return
 
         loaded_store = result.get("log_data_store", {})
         for d_key, entries in loaded_store.items():
@@ -664,6 +707,7 @@ class LogViewerWidget(QWidget):
             for name in (self.active_lpars + result.get("active_lpars", []))
         ]
         self.active_lpars = sorted({name for name in normalized_active if name})
+        self._last_active_lpars_signature = tuple(self.active_lpars)
 
         if self.monthly_report_widget is not None:
             self.monthly_report_widget.set_log_data_store(self.log_data_store, source_mode="local")
@@ -693,6 +737,9 @@ class LogViewerWidget(QWidget):
         self._hide_loading()
 
         # Handle pending reloads after UI completes update
+        self._load_pending_history_reload()
+
+    def _load_pending_history_reload(self):
         if self._history_reload_pending:
             self._history_reload_pending = False
             force_reload = self._history_reload_force
@@ -703,23 +750,6 @@ class LogViewerWidget(QWidget):
         self._history_loading = False
         self._hide_loading()
         SYSTEM_LOGGER.error("System log history load failed")
-
-    def _compute_log_scan_signature(self):
-        signature = {}
-        for target_dir in get_all_logs_dirs():
-            if not os.path.exists(target_dir):
-                continue
-            files = [
-                f for f in os.listdir(target_dir)
-                if f.endswith(".json") and f.startswith("lpar_history_")
-            ]
-            for file_name in sorted(files):
-                path = os.path.join(target_dir, file_name)
-                try:
-                    signature[f"{target_dir}/{file_name}"] = (os.path.getmtime(path), os.path.getsize(path))
-                except OSError:
-                    continue
-        return signature
 
     def load_log_history(self, active_server_configs=None, silent=False, force=False):
         if active_server_configs is not None:
@@ -732,38 +762,29 @@ class LogViewerWidget(QWidget):
                 self.active_lpars = normalized_names
 
         active_signature = tuple(self.active_lpars)
-        scan_signature = self._compute_log_scan_signature()
-        if self.log_data_store and not force and scan_signature == self._last_log_scan_signature and active_signature == self._last_active_lpars_signature:
-            self._update_last_refresh_timestamp()
-            return
-
         if self._history_loading:
             self._history_reload_pending = True
             self._history_reload_force = self._history_reload_force or force
             return
 
         self._history_loading = True
-        self._last_log_scan_signature = scan_signature
-        self._last_active_lpars_signature = active_signature
-        
         if not silent:
             self._show_loading()
-
-        for target_dir in get_all_logs_dirs():
-            if os.path.exists(target_dir):
-                for file_name in os.listdir(target_dir):
-                    file_path = os.path.join(target_dir, file_name)
-                    if file_path not in self.file_watcher.files():
-                        try:
-                            self.file_watcher.addPath(file_path)
-                        except Exception:
-                            pass
 
         self.history_signals = LogHistoryLoadSignals()
         self.history_signals.finished.connect(self._on_history_loaded)
         self.history_signals.error.connect(self._on_history_error)
 
-        loader = LogHistoryLoader(get_all_logs_dirs(), self.active_lpars, self.history_signals)
+        loader = LogHistoryLoader(
+            self.active_lpars,
+            self.history_signals,
+            previous_signature=self._last_log_scan_signature,
+            can_skip_loading=(
+                self._has_loaded_history
+                and not force
+                and active_signature == self._last_active_lpars_signature
+            ),
+        )
         if self._history_thread_pool is not None:
             self._history_thread_pool.start(loader)
 

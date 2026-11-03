@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import threading
 from datetime import datetime
 
@@ -21,9 +22,153 @@ from PyQt6.QtWidgets import (
 )
 
 from config import get_all_logs_dirs, get_monthly_logs_dir_for, safe_json_save
+from system_logging import SYSTEM_LOGGER
 from worker import DailyBackupFetchThread, MonthlyBackupFetchThread
 
 _BACKUP_FILE_LOCK = threading.RLock()
+
+
+def _merge_backup_records(existing_records, incoming_records):
+    merged = {}
+    for record in existing_records + incoming_records:
+        if not isinstance(record, dict):
+            continue
+        key = (record.get("job_name"), str(record.get("start_time", "")))
+        previous = merged.get(key, {})
+        merged[key] = {
+            **previous,
+            **{
+                field: value
+                for field, value in record.items()
+                if value is not None and value != ""
+            },
+        }
+    return sorted(
+        merged.values(),
+        key=lambda record: str(record.get("start_time", "")),
+        reverse=True,
+    )
+
+
+def _merge_backup_conflict_files(path):
+    """Merge OneDrive device-suffixed backup copies before updating the canonical file."""
+    directory = os.path.dirname(path)
+    canonical_name = os.path.basename(path)
+    stem, extension = os.path.splitext(canonical_name)
+    pattern = re.compile(
+        rf"^{re.escape(stem)}-.+{re.escape(extension)}$",
+        re.IGNORECASE,
+    )
+    try:
+        conflict_paths = [
+            os.path.join(directory, name)
+            for name in os.listdir(directory)
+            if pattern.fullmatch(name)
+        ]
+    except OSError as exc:
+        SYSTEM_LOGGER.error("Could not scan for backup conflict copies in %s: %s", directory, exc)
+        return False
+
+    if not conflict_paths:
+        return True
+
+    canonical_data = {}
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                canonical_data = json.load(handle) or {}
+            if not isinstance(canonical_data, dict):
+                raise ValueError("Canonical backup history must contain a JSON object")
+        except (OSError, ValueError) as exc:
+            SYSTEM_LOGGER.error("Could not read canonical backup history %s: %s", path, exc)
+            return False
+
+    processed_paths = []
+    has_unprocessed_copy = False
+    for conflict_path in conflict_paths:
+        try:
+            with open(conflict_path, "r", encoding="utf-8") as handle:
+                conflict_data = json.load(handle) or {}
+            if not isinstance(conflict_data, dict):
+                raise ValueError("Conflict backup history must contain a JSON object")
+        except (OSError, ValueError) as exc:
+            SYSTEM_LOGGER.error("Could not read backup conflict copy %s: %s", conflict_path, exc)
+            has_unprocessed_copy = True
+            continue
+
+        valid_copy = True
+        for key, incoming in conflict_data.items():
+            existing = canonical_data.get(key)
+            if isinstance(incoming, list):
+                if (
+                    (existing is not None and not isinstance(existing, list))
+                    or any(not isinstance(record, dict) for record in incoming)
+                    or (
+                        isinstance(existing, list)
+                        and any(not isinstance(record, dict) for record in existing)
+                    )
+                ):
+                    SYSTEM_LOGGER.error(
+                        "Unexpected backup history format for %s in %s",
+                        key,
+                        conflict_path,
+                    )
+                    valid_copy = False
+                    break
+                canonical_data[key] = _merge_backup_records(existing or [], incoming)
+            elif isinstance(incoming, dict):
+                if existing is not None and not isinstance(existing, dict):
+                    SYSTEM_LOGGER.error(
+                        "Unexpected backup metadata format for %s in %s",
+                        key,
+                        conflict_path,
+                    )
+                    valid_copy = False
+                    break
+                merged_metadata = dict(existing or {})
+                for metadata_key, metadata_value in incoming.items():
+                    if isinstance(metadata_value, dict) and isinstance(
+                        merged_metadata.get(metadata_key), dict
+                    ):
+                        merged_metadata[metadata_key] = {
+                            **merged_metadata[metadata_key],
+                            **{
+                                field: value
+                                for field, value in metadata_value.items()
+                                if value is not None and value != ""
+                            },
+                        }
+                    elif metadata_key not in merged_metadata or metadata_value not in (
+                        None,
+                        "",
+                    ):
+                        merged_metadata[metadata_key] = metadata_value
+                canonical_data[key] = merged_metadata
+            elif key not in canonical_data:
+                canonical_data[key] = incoming
+        if valid_copy:
+            processed_paths.append(conflict_path)
+        else:
+            has_unprocessed_copy = True
+
+    if not processed_paths:
+        return False
+    if not safe_json_save(path, canonical_data):
+        SYSTEM_LOGGER.error("Could not save merged backup history to %s", path)
+        return False
+
+    all_removed = not has_unprocessed_copy
+    for conflict_path in processed_paths:
+        try:
+            os.remove(conflict_path)
+        except OSError as exc:
+            all_removed = False
+            SYSTEM_LOGGER.error(
+                "Merged backup conflict copy but could not remove %s: %s",
+                conflict_path,
+                exc,
+            )
+    return all_removed
 
 
 class BackupManagementWidget(QWidget):
@@ -308,6 +453,11 @@ class BackupManagementWidget(QWidget):
         records = []
         month_prefix = self._selected_month_prefix()
         path = self._backup_json_path(backup_type, month_prefix)
+        with _BACKUP_FILE_LOCK:
+            if not _merge_backup_conflict_files(path):
+                self._set_status(
+                    f"Backup conflict copies for {backup_type} could not all be merged."
+                )
         try:
             if os.path.exists(path):
                 with open(path, "r", encoding="utf-8") as file:
@@ -526,6 +676,13 @@ class BackupManagementWidget(QWidget):
         with _BACKUP_FILE_LOCK:
             for month_prefix, month_records in records_by_month.items():
                 path = self._backup_json_path(backup_type, month_prefix)
+                if not _merge_backup_conflict_files(path):
+                    self._handle_backup_error(
+                        backup_type,
+                        server_name,
+                        "Could not merge backup conflict copies; the new history was not saved.",
+                    )
+                    return
                 data = self._read_backup_file(path)
                 existing_records = data.get(server_name, [])
 
@@ -561,6 +718,11 @@ class BackupManagementWidget(QWidget):
         current_month = datetime.now().strftime("%Y-%m")
         path = self._backup_json_path(backup_type, current_month)
         with _BACKUP_FILE_LOCK:
+            if not _merge_backup_conflict_files(path):
+                self._set_status(
+                    f"Backup conflict copies for {backup_type} could not all be merged."
+                )
+                return
             data = self._read_backup_file(path)
             data.setdefault(server_name, [])
             data.setdefault("_errors", {})[server_name] = {

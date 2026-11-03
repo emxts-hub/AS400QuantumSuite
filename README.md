@@ -72,7 +72,7 @@ Start the application using the source or installer instructions above. On start
 
 For email notifications, open **Email & Alerts**, enable email alerts, enter the SMTP server, port, sender and recipient addresses, and credentials, then click **Save Changes** and **Send Test Email**. Configure the ASP threshold and cooldown there. The threshold is the critical point; the warning level is normally two percentage points below it. Warning alerts are shown in orange and are silent; critical alerts are shown in red and sound. Email delivery also depends on the SMTP server accepting the configured account and recipients.
 
-To check for a newer application release manually, open **Storage & System** and select **Check for Updates** under **Application Updates**. If a newer version is available, select **Download Update** to open its release page.
+To check for a newer application release manually, open **Storage & System** and select **Check for Updates** under **Application Updates**. If a newer version is available, select **Download Update** and choose where to save the Windows installer. The app downloads the installer directly; run it to update the application.
 
 ### 3. Start live monitoring
 
@@ -99,14 +99,15 @@ After credential validation, open **Backup Management** and choose a configured 
 - Application configuration is stored in the current user's application data directory. Passwords are stored in the operating system keyring when available; SMTP settings can also be supplied through environment variables.
 - JSON monitoring history is stored in the configured log root, with a local application logs-folder fallback if the preferred location is unavailable.
 - Settings can be backed up or restored from **Storage & System**. Treat a settings backup as sensitive: it may contain credentials.
-- The app removes older daily monitoring logs under its 30-day retention policy. Keep any archives or settings backups in an access-controlled location.
+- **System Logs** displays up to 30 days of history. This display limit does not delete older JSON history files; manage long-term archives according to your organization's retention policy.
 
 ## Configuration And Data
 
 - Application settings are stored in the current user's application data directory under `AS400 Quantum Suite`.
-- The log root and optional ASP/CPU workbook paths are configurable in Settings. Selected annual workbooks named `BY - ASP YYYY.xlsx` or `BY - CPU YYYY.xlsx` can be placed in a year folder; if a path is blank, the app uses the standard workbook name under the log root's year folder. Each workbook needs a worksheet for every IBM i host name. After all configured servers report for an hour, monitoring batches their readings into the matching worksheet and date/hour cell, then saves each workbook once. Successful workbook updates and failures are reported in System Logs.
+- The log root and optional ASP/CPU workbook paths are configurable in Settings. Selected annual workbooks named `BY - ASP YYYY.xlsx` or `BY - CPU YYYY.xlsx` can be placed in a year folder; if a path is blank, the app uses the standard workbook name under the log root's year folder. Each workbook needs a worksheet for every IBM i host name. After all configured servers report for an hour, monitoring batches their readings into the matching worksheet and date/hour cell, then saves each workbook once. At midnight, a catch-up replays the previous day's saved hourly readings (00:00-23:00) into empty cells; it also runs for the previous day when the app starts. Successful workbook updates and failures are reported in System Logs. If a workbook is open in Excel, the batch remains pending and is retried during later monitoring refreshes.
 - Daily JSON monitoring history remains in a separate `YYYY\Month Year` folder and is used by Logs & Analytics and monthly reports. JSON records are saved locally before Excel export, so a missing, unavailable, or mismatched workbook does not discard local history. If the preferred archive location is unavailable, JSON log writes can fall back to the application's local logs folder.
-- Cleanup retains the current and previous calendar months for reporting; older canonical daily logs are subject to the 30-day retention policy.
+- If OneDrive creates device-suffixed copies of monthly backup JSON files after sync conflicts, Backup Management merges readable copies into the canonical file and removes them only after the merged data is saved.
+- **System Logs** shows up to 30 days of history at a time. Older daily JSON files are not automatically deleted by this view and may remain available to monthly reports; manage their retention and backups according to your organization's policy.
 - Keep settings backups and log archives in locations accessible to the operator account. Do not include credentials or private logs in public source-control commits.
 
 ## Build And Installer
@@ -147,7 +148,7 @@ tests/                   Pytest regression tests
 
 ## Application Updates
 
-Startup checks enforce the configured build expiration and compare the installed version with the published minimum supported version. The **Check for Updates** control in **Settings & Credentials** > **Storage & System** compares the installed version with the published latest version and offers the release page when a newer version is available. Version metadata is read from the repository's `version.json` using the URL configured in `src/config.py`.
+Startup checks enforce the configured build expiration and compare the installed version with the published minimum supported version. The **Check for Updates** control in **Settings & Credentials** > **Storage & System** compares the installed version with the published latest version. When a newer version is available, **Download Update** downloads the Windows installer from the latest GitHub release to a location you choose. Version metadata is read from the repository's `version.json` using the URL configured in `src/config.py`.
 
 ---
 

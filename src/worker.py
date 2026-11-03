@@ -21,6 +21,7 @@ from config import (
     SERVER_CONFIGS, 
     MONITORED_PORTS, 
     EXPECTED_PORTS, 
+    get_app_data_dir,
     get_logs_dir,
     get_all_logs_dirs,
     get_resource_path, 
@@ -30,7 +31,7 @@ from config import (
     EXPECTED_WEB_APPS,
 )
 from ui.setcreds import load_email_alerts
-from excel_store import push_metrics_to_excel
+from excel_store import push_daily_metrics_to_excel, push_metrics_to_excel
 from system_logging import SYSTEM_LOGGER
 
 _LOG_WRITE_LOCK = threading.Lock()
@@ -40,6 +41,10 @@ _LOG_QUEUE = queue.Queue()
 _LOGGER_THREAD = None
 _EXCEL_SYNCED_HOURS = {}
 _EXCEL_PENDING_HOURS = {}
+_EXCEL_FINALIZED_HOURS = set()
+_EXCEL_SYNC_LOCK = threading.Lock()
+_EXCEL_DAILY_SYNC_START_LOCK = threading.Lock()
+_EXCEL_DAILY_SYNC_STARTED = False
 _ALERT_STATE_LOCK = threading.Lock()
 _LAST_ASP_ALERT_STATE = {}
 _LAST_ASP_SOUND_STATE = {"armed": False, "sent_at": 0.0}
@@ -1989,34 +1994,58 @@ def _sync_metrics_to_excel(record):
     hour_key = timestamp[:13]
     if not server_key or len(hour_key) != 13:
         return
-    if _EXCEL_SYNCED_HOURS.get(hour_key):
-        return
+    with _EXCEL_SYNC_LOCK:
+        if not _EXCEL_SYNCED_HOURS.get(hour_key):
+            pending = _EXCEL_PENDING_HOURS.setdefault(hour_key, {})
+            pending[server_key] = record
 
-    pending = _EXCEL_PENDING_HOURS.setdefault(hour_key, {})
-    pending[server_key] = record
+        _retry_pending_excel_hours()
+
+
+def _retry_pending_excel_hours():
     expected_servers = {str(key).strip() for key in SERVER_CONFIGS}
-    if expected_servers and not expected_servers.issubset(pending):
-        return
+    for pending_hour, pending_records in list(_EXCEL_PENDING_HOURS.items()):
+        is_finalized = pending_hour in _EXCEL_FINALIZED_HOURS
+        if (
+            expected_servers
+            and not is_finalized
+            and not expected_servers.issubset(pending_records)
+        ):
+            continue
 
-    try:
-        errors = push_metrics_to_excel(list(pending.values()))
-        for error in errors:
-            if " Excel batch skipped: already has log at " in error or " Excel batch updated: " in error:
-                SYSTEM_LOGGER.info("%s", error)
-            else:
-                SYSTEM_LOGGER.error("%s", error)
-        if not any(not error.startswith(("ASP Excel ", "CPU Excel ")) for error in errors):
-            recorded_at = next(iter(pending.values())).get("timestamp", hour_key)
-            failed_metrics = {
+        try:
+            errors = push_metrics_to_excel(list(pending_records.values()))
+            for error in errors:
+                if error.startswith(
+                    (
+                        "ASP Excel batch skipped: already has log at ",
+                        "CPU Excel batch skipped: already has log at ",
+                        "ASP Excel batch updated: ",
+                        "CPU Excel batch updated: ",
+                    )
+                ):
+                    SYSTEM_LOGGER.info("%s", error)
+                else:
+                    SYSTEM_LOGGER.error("%s", error)
+
+            metric_failures = {
                 metric
                 for metric in ("ASP", "CPU")
                 if any(
                     error.startswith(f"{metric} Excel ")
-                    and " Excel batch skipped: already has log at " not in error
-                    and " Excel batch updated: " not in error
+                    and not error.startswith(
+                        (
+                            f"{metric} Excel batch skipped: already has log at ",
+                            f"{metric} Excel batch updated: ",
+                        )
+                    )
                     for error in errors
                 )
             }
+            global_failure = any(
+                not error.startswith(("ASP Excel ", "CPU Excel "))
+                for error in errors
+            )
             updated_counts = {}
             for metric in ("ASP", "CPU"):
                 for error in errors:
@@ -2028,28 +2057,247 @@ def _sync_metrics_to_excel(record):
                 metric
                 for metric in ("ASP", "CPU")
                 if any(
-                    error.startswith(f"{metric} Excel batch skipped: already has log at ")
+                    error.startswith(
+                        f"{metric} Excel batch skipped: already has log at "
+                    )
                     for error in errors
                 )
             }
+            recorded_at = next(iter(pending_records.values())).get(
+                "timestamp", pending_hour
+            )
             for metric in ("ASP", "CPU"):
-                if metric in skipped_metrics or metric in failed_metrics:
-                    if metric not in updated_counts:
-                        continue
+                if (
+                    global_failure
+                    or metric in skipped_metrics
+                    or metric in metric_failures
+                ):
+                    continue
                 SYSTEM_LOGGER.info(
                     "HOURLY EXCEL SUCCESS: BY - %s %s.xlsx updated for %s server(s), hour %s",
                     metric,
-                    hour_key[:4],
-                    updated_counts.get(metric, str(len(pending))),
+                    pending_hour[:4],
+                    updated_counts.get(metric, str(len(pending_records))),
                     recorded_at[:13],
                 )
-    except Exception:
-        SYSTEM_LOGGER.exception(
-            "Local LPAR history was saved, but the hourly Excel batch update failed"
+
+            if global_failure or metric_failures:
+                SYSTEM_LOGGER.warning(
+                    "Hourly Excel batch for %s remains pending and will be retried",
+                    pending_hour,
+                )
+                continue
+            _EXCEL_SYNCED_HOURS[pending_hour] = True
+            _EXCEL_PENDING_HOURS.pop(pending_hour, None)
+            _EXCEL_FINALIZED_HOURS.discard(pending_hour)
+        except Exception:
+            SYSTEM_LOGGER.exception(
+                "Local LPAR history was saved, but the hourly Excel batch update failed"
+            )
+
+
+def _sync_daily_excel_logs(target_date):
+    """Queue and export each saved hourly reading for one calendar day."""
+    date_key = target_date.strftime("%Y-%m-%d")
+    pending_days = _load_pending_excel_sync_days()
+    if pending_days is None:
+        return 0
+    pending_days.add(date_key)
+    if not _save_pending_excel_sync_days(pending_days):
+        SYSTEM_LOGGER.error(
+            "Could not persist the Excel catch-up queue for %s", date_key
         )
+
+    file_name = f"lpar_history_{date_key}.json"
+    dated_records = []
+    read_failed = False
+
+    for logs_dir in get_all_logs_dirs():
+        file_path = os.path.join(logs_dir, file_name)
+        if not os.path.isfile(file_path):
+            continue
+        entries = _read_log_entries(file_path)
+        if entries is None:
+            SYSTEM_LOGGER.error("Could not read daily history for Excel catch-up: %s", file_path)
+            read_failed = True
+            continue
+
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            records = entry.get("records", [])
+            if isinstance(records, dict):
+                records = [records]
+            if not isinstance(records, list):
+                continue
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                timestamp = str(record.get("timestamp") or "")
+                try:
+                    recorded_at = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    continue
+                if recorded_at.strftime("%Y-%m-%d") != date_key:
+                    continue
+
+                server_key = str(
+                    record.get("config_key")
+                    or record.get("host_name")
+                    or record.get("lpar")
+                    or record.get("server")
+                    or ""
+                ).strip()
+                if not server_key:
+                    continue
+                excel_record = {
+                    "timestamp": timestamp,
+                    "config_key": server_key,
+                    "host_name": record.get("host_name", ""),
+                    "server_name": record.get("server_name", ""),
+                    "lpar": record.get("lpar", server_key),
+                    "server": record.get("server", server_key),
+                    "cpu": record.get("cpu"),
+                    "asp": record.get("asp"),
+                }
+                dated_records.append((recorded_at, server_key, excel_record))
+
+    if not dated_records:
+        SYSTEM_LOGGER.info("No saved hourly records found for Excel catch-up on %s", date_key)
+        if not read_failed:
+            pending_days.discard(date_key)
+            _save_pending_excel_sync_days(pending_days)
+        return 0
+
+    hourly_records = {}
+    for recorded_at, server_key, record in sorted(dated_records, key=lambda item: item[0]):
+        hour_key = recorded_at.strftime("%Y-%m-%d %H")
+        hourly_records.setdefault(hour_key, {}).setdefault(server_key, record)
+
+    sync_failed = False
+    with _EXCEL_SYNC_LOCK:
+        errors = push_daily_metrics_to_excel([
+            record
+            for records in hourly_records.values()
+            for record in records.values()
+        ])
+        for error in errors:
+            if " batch update failed:" in error or error.startswith("Excel export failed:"):
+                sync_failed = True
+                SYSTEM_LOGGER.error("%s", error)
+            else:
+                SYSTEM_LOGGER.info("%s", error)
+
+        if not sync_failed:
+            for hour_key in hourly_records:
+                _EXCEL_SYNCED_HOURS[hour_key] = True
+                _EXCEL_PENDING_HOURS.pop(hour_key, None)
+                _EXCEL_FINALIZED_HOURS.discard(hour_key)
+
+    if not sync_failed and not read_failed:
+        pending_days.discard(date_key)
+        if not _save_pending_excel_sync_days(pending_days):
+            SYSTEM_LOGGER.error(
+                "Could not clear the completed Excel catch-up queue for %s",
+                date_key,
+            )
+    SYSTEM_LOGGER.info(
+        "Midnight Excel catch-up processed %d hour(s) for %s",
+        len(hourly_records),
+        date_key,
+    )
+    return len(hourly_records)
+
+
+def _pending_excel_sync_days_path():
+    return os.path.join(get_app_data_dir(), "excel_sync_pending_days.json")
+
+
+def _load_pending_excel_sync_days():
+    path = _pending_excel_sync_days_path()
+    if not os.path.isfile(path):
+        return set()
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            days = json.load(handle)
+        if not isinstance(days, list):
+            raise ValueError("Pending Excel sync queue must be a list")
+        normalized_days = set()
+        for day_key in days:
+            if not isinstance(day_key, str):
+                raise ValueError("Pending Excel sync dates must be strings")
+            normalized_days.add(datetime.strptime(day_key, "%Y-%m-%d").strftime("%Y-%m-%d"))
+        return normalized_days
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        SYSTEM_LOGGER.error("Could not read pending Excel sync queue %s: %s", path, exc)
+        return None
+
+
+def _save_pending_excel_sync_days(days):
+    try:
+        return safe_json_save(
+            _pending_excel_sync_days_path(),
+            sorted(days),
+        )
+    except OSError as exc:
+        SYSTEM_LOGGER.error("Could not save pending Excel sync queue: %s", exc)
+        return False
+
+
+def _sync_scheduled_excel_days():
+    pending_days = _load_pending_excel_sync_days()
+    if pending_days is None:
+        return
+    _LOG_QUEUE.join()
+    pending_days.add(
+        (datetime.now().date() - timedelta(days=1)).strftime("%Y-%m-%d")
+    )
+    for day_key in sorted(pending_days):
+        _sync_daily_excel_logs(datetime.strptime(day_key, "%Y-%m-%d").date())
+
+
+class DailyExcelSyncSignals(QObject):
+    startup_finished = pyqtSignal()
+
+
+def _daily_excel_sync_scheduler(startup_signals=None):
+    try:
+        try:
+            _sync_scheduled_excel_days()
+        except Exception:
+            SYSTEM_LOGGER.exception("Startup Excel catch-up failed")
     finally:
-        _EXCEL_SYNCED_HOURS[hour_key] = True
-        _EXCEL_PENDING_HOURS.pop(hour_key, None)
+        if startup_signals is not None:
+            startup_signals.startup_finished.emit()
+
+    while True:
+        now = datetime.now()
+        next_midnight = (now + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        time.sleep(max(1.0, (next_midnight - now).total_seconds()))
+        try:
+            _sync_scheduled_excel_days()
+        except Exception:
+            SYSTEM_LOGGER.exception("Midnight Excel catch-up failed")
+
+
+def start_daily_excel_sync(startup_signals=None):
+    """Start the midnight catch-up and replay yesterday once when the app opens."""
+    global _EXCEL_DAILY_SYNC_STARTED
+    with _EXCEL_DAILY_SYNC_START_LOCK:
+        if _EXCEL_DAILY_SYNC_STARTED:
+            if startup_signals is not None:
+                startup_signals.startup_finished.emit()
+            return
+        _EXCEL_DAILY_SYNC_STARTED = True
+    scheduler = threading.Thread(
+        target=_daily_excel_sync_scheduler,
+        args=(startup_signals,),
+        name="AS400QuantumSuite-DailyExcelSync",
+        daemon=True,
+    )
+    scheduler.start()
 
 
 def _persist_and_emit(runnable, result):

@@ -22,7 +22,9 @@ If you received the installer, run `AS400QuantumSuite-Setup.exe` and follow the 
 
 If you received the portable application folder instead, extract the entire folder and run `AS400QuantumSuite.exe` from inside it. Keep the executable and its neighboring files together; do not copy the `.exe` by itself to another folder.
 
-At launch, the application checks its build expiration and whether the installed version meets the published minimum version. If the installed version is below the minimum, the app requires a supported build; use the update link shown or contact the person who provided the installer. A newer-version notice is only shown when your installed version is behind. To check for a newer release at any time, open **Settings & Credentials** > **Storage & System** and select **Check for Updates** under **Application Updates**. Select **Download Update** if a newer version is available.
+At launch, the application checks its build expiration and whether the installed version meets the published minimum version. If the installed version is below the minimum, the app requires a supported build; use the update link shown or contact the person who provided the installer. A newer-version notice is only shown when your installed version is behind. To check for a newer release at any time, open **Settings & Credentials** > **Storage & System** and select **Check for Updates** under **Application Updates**. If a newer version is available, select **Download Update** and choose where to save the Windows installer. Run the downloaded installer to update the application.
+
+During startup, the app keeps its controls unavailable while it finishes the daily log-to-Excel catch-up. Wait for the startup screen to close before using the dashboard.
 
 ## 3. Add your IBM i systems
 
@@ -84,11 +86,11 @@ Daily monitoring history is saved as JSON under the selected log root, organized
 
 If your organization uses hourly workbooks, select the ASP and CPU workbooks separately in **Settings & Credentials** > **Storage & System**, or leave the selectors blank and place `BY - ASP YYYY.xlsx` and `BY - CPU YYYY.xlsx` in the matching year folder under the selected log root. Each workbook must have a worksheet named for the IBM i host and the expected date/hour cells from the workbook template. If a selected workbook follows the standard annual filename and year-folder layout, the app uses the corresponding year's workbook. After all configured systems report for the hour, the app writes the readings.
 
-Keep these workbooks closed in Excel while the application updates them. Missing or open workbooks, mismatched worksheet names, or missing date/hour cells are reported in **System Logs**. Ask your administrator to correct the workbook template or folder if these errors persist.
+Excel locks a workbook while it is open, so the app cannot update that file at the same time. Monitoring data is saved to JSON first; if a workbook is open or temporarily unavailable, the hourly Excel batch stays pending and is retried on later monitoring refreshes. At 12:00 AM, the app also replays the previous day's saved readings from 00:00 through 23:00 into any empty hourly cells. This catch-up runs while the app is open; it also replays the previous day when the app is next started. Existing workbook values are left unchanged. Close the workbook to allow a retry. Missing workbooks, mismatched worksheet names, or missing date/hour cells are reported in **System Logs**.
 
 ## 8. Review backup history
 
-After credential validation, open **Backup Management**. Select a system and month to review available daily/weekly, monthly, and journal backup information, including times, durations, status, and averages. Backup data is queried from the IBM i system and depends on the configured backup job names. If the normal daily/weekly job-history query returns no records, the app also searches IBM i BRMS log history for the configured backup name. This alternate source can help when a backup is recorded in BRMS logs but is not returned by the job-history query.
+After credential validation, open **Backup Management**. Select a system and month to review available daily/weekly, monthly, and journal backup information, including times, durations, status, and averages. Backup data is queried from the IBM i system and depends on the configured backup job names. If the normal daily/weekly job-history query returns no records, the app also searches IBM i BRMS log history for the configured backup name. This alternate source can help when a backup is recorded in BRMS logs but is not returned by the job-history query. If OneDrive creates device-suffixed copies of monthly backup JSON files after a sync conflict, the app merges readable copies into the canonical file and removes them only after saving the merged data.
 
 ## 9. Settings, backups, and privacy
 
@@ -96,7 +98,7 @@ After credential validation, open **Backup Management**. Select a system and mon
 - Use **Backup Configuration** and **Restore** under **Storage & System** to export or restore settings.
 - A settings backup may contain credentials. Store it only in an approved, access-controlled location and share it only with authorized administrators.
 - Monitoring history is stored in the configured log folder. If that location is unavailable, JSON history may fall back to the application's local logs folder.
-- Older daily monitoring logs are subject to the application's 30-day retention policy. Keep separate archives if your organization needs longer retention.
+- **System Logs** displays up to 30 days of history. This is a display limit; it does not automatically delete older JSON history files. Follow your organization's retention policy for archiving or removing stored logs.
 - If you no longer have access to a configured shared folder, update the log root in **Settings & Credentials** > **Storage & System**.
 
 ## Troubleshooting
@@ -113,7 +115,7 @@ After credential validation, open **Backup Management**. Select a system and mon
 | Daily/weekly backup history is still empty | Confirm the configured backup name and check whether matching BRMS records exist on the IBM i system. The fallback also requires access to `QUSRBRM.BRMS_LOG_INFO`. |
 | The app says an update is required or the build has expired | Contact the person who supplied the installer for a supported build. |
 | The update check cannot reach the version server | Confirm internet access and try **Check for Updates** again later. The manual check reads the published version metadata; it does not download or install the update. |
-| A newer version is available | Select **Download Update** to open the release page, then follow your organization's installation instructions or contact the person who supplied the app. |
+| A newer version is available | Select **Download Update** and choose where to save the Windows installer, then run it to update the application. Follow your organization's installation instructions or contact the person who supplied the app if needed. |
 
 For problems that remain unresolved, provide your administrator with the system name, approximate time, and relevant message from **System Logs**. Do not send passwords or settings backups through an unapproved channel.
 
