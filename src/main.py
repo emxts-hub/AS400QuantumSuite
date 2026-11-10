@@ -13,7 +13,6 @@ from dialogs import AppExpirationDialog
 from system_logging import configure_system_logging
 from ui.styles import DARK_STYLESHEET
 import ui.main_window
-from worker import DailyExcelSyncSignals, start_daily_excel_sync
 from version_worker import VersionCheckWorker
 
 
@@ -76,10 +75,8 @@ def main():
             sys.exit(0)
 
         # 3. Load & Render Main UI First
-        startup_sync_signals = DailyExcelSyncSignals()
         window = ui.main_window.IBMiDashboard()
         window.setWindowIcon(app_icon)
-        startup_sync_signals.startup_finished.connect(window._finish_startup_loading)
         window.showMaximized()
 
         # 4. Defer Version Worker check until GUI loop is active
@@ -116,10 +113,7 @@ def main():
 
         # Let the GUI paint before starting the background checks.
         QTimer.singleShot(200, run_version_check)
-        QTimer.singleShot(
-            2000,
-            lambda: start_daily_excel_sync(startup_sync_signals),
-        )
+        QTimer.singleShot(2000, window._finish_startup_loading)
 
         sys.exit(app.exec())
 

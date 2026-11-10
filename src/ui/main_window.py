@@ -40,6 +40,15 @@ from worker import (
 )
 from ui.log_viewer import LogViewerWidget
 from ui.monthly_report import MonthlyReportWidget
+from ui.weekly_report import (
+    build_weekly_report_path,
+    generate_weekly_asp_cpu_report,
+    latest_complete_week,
+    mark_weekly_report_email_sent,
+    milliseconds_until_next_saturday_midnight,
+    send_weekly_report_email,
+    weekly_report_email_sent,
+)
 from ui.backup_manage import BackupManagementWidget
 from ui.widgets import RefreshStatusWidget, StatusBadgesWidget, SubsystemGridWidget
 from dialogs import (
@@ -67,6 +76,7 @@ from ui.setcreds import (
     load_email_alerts,
     load_login_credentials,
     load_settings_backup,
+    load_weekly_report_email,
     save_all_configs,
     save_ibmi_password,
     save_settings_backup,
@@ -83,74 +93,29 @@ OBJECT_STATISTICS_RETRY_MAX_DELAY_MS = 60000
 SYSTEM_LOGGER, SYSTEM_LOG_HANDLER = configure_system_logging()
 
 
-def build_web_app_rows(active_jobs_detail, ports_data, configured_web_apps=None):
-    """Build a summary of web apps by pairing active job names with their monitored ports."""
+def build_web_app_rows(active_jobs_detail, configured_web_apps=None):
+    """Build a summary of configured web apps from their active jobs."""
     jobs = active_jobs_detail or []
-    ports = ports_data or []
     configured = configured_web_apps or []
     if not isinstance(jobs, list):
         jobs = []
-    if not isinstance(ports, list):
-        ports = []
     if not isinstance(configured, list):
         configured = []
 
     def _normalize_entry(entry):
         if isinstance(entry, dict):
             name = str(entry.get("job_name") or entry.get("name") or entry.get("job") or "").strip().upper()
-            port_val = entry.get("port")
-            if not name or port_val is None:
-                return None
-            try:
-                port_num = int(port_val)
-                if not 1 <= port_num <= 65535:
-                    status = "INVALID"
-                else:
-                    status = "DOWN"
-                return {"name": name, "port": port_num, "status": status}
-            except (TypeError, ValueError):
-                return None
+            return name or None
         if isinstance(entry, str):
-            item = entry.strip()
-            if not item:
-                return None
-            if ":" in item:
-                name_part, port_part = item.split(":", 1)
-                try:
-                    port_num = int(port_part.strip())
-                    status = "DOWN" if 1 <= port_num <= 65535 else "INVALID"
-                    return {"name": name_part.strip().upper(), "port": port_num, "status": status}
-                except ValueError:
-                    return None
+            name = entry.split(":", 1)[0].strip().upper()
+            return name or None
         return None
 
-    configured_rows = []
+    configured_names = {}
     for item in configured:
-        parsed = _normalize_entry(item)
-        if parsed:
-            configured_rows.append(parsed)
-
-    verified_ports = {}
-    for item in ports:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or item.get("service") or "").strip().upper()
-        try:
-            port_num = int(item.get("port"))
-        except (TypeError, ValueError):
-            continue
+        name = _normalize_entry(item)
         if name:
-            verified_ports[(name, port_num)] = item
-
-    for row in configured_rows:
-        if row["status"] == "INVALID":
-            continue
-        port_entry = verified_ports.get((row["name"], row["port"]))
-        row["status"] = "RUNNING" if port_entry and port_entry.get("is_up") is True else "DOWN"
-
-    app_names_by_job_name = {}
-    for row in configured_rows:
-        app_names_by_job_name[worker._normalize_web_app_job_name(row["name"])] = row["name"]
+            configured_names[worker._normalize_web_app_job_name(name)] = name
 
     job_counts = {}
     for job in jobs:
@@ -158,57 +123,18 @@ def build_web_app_rows(active_jobs_detail, ports_data, configured_web_apps=None)
             continue
         raw_name = str(job.get("job_name") or "").strip()
         name = worker._normalize_web_app_job_name(raw_name.rsplit("/", 1)[-1])
-        if name not in app_names_by_job_name:
+        if name not in configured_names:
             continue
         job_counts[name] = job_counts.get(name, 0) + 1
 
-    port_by_name = {}
-    for item in ports:
-        if not isinstance(item, dict):
-            continue
-        name = worker._normalize_web_app_job_name(item.get("name") or item.get("service") or "")
-        port_num = item.get("port")
-        if name and port_num is not None:
-            try:
-                port_by_name[name] = int(port_num)
-            except (TypeError, ValueError):
-                pass
-
-    rows_by_key = {}
-    for row in configured_rows:
-        rows_by_key[(row["name"], row["port"])] = row
-
-    for app_name, count in sorted(job_counts.items()):
-        port_num = port_by_name.get(app_name)
-        port_entry = None
-        for item in ports:
-            if not isinstance(item, dict):
-                continue
-            name = worker._normalize_web_app_job_name(item.get("name") or item.get("service") or "")
-            if name == app_name:
-                port_entry = item
-                port_num = item.get("port")
-        if port_num is None:
-            continue
-        port_num = int(port_num)
-        if not 1 <= port_num <= 65535:
-            status = "INVALID"
-        else:
-            status = "RUNNING" if bool(port_entry.get("is_up", False) if isinstance(port_entry, dict) else False) else "DOWN"
-        display_name = app_names_by_job_name.get(app_name, app_name)
-        key = (display_name, port_num)
-        rows_by_key[key] = {
-            "name": display_name,
-            "port": port_num,
-            "count": max(int(rows_by_key.get(key, {}).get("count", 0)), int(count)),
-            "status": status,
+    return [
+        {
+            "name": name,
+            "count": job_counts.get(normalized_name, 0),
+            "status": "RUNNING" if job_counts.get(normalized_name, 0) else "DOWN",
         }
-
-    rows = sorted(rows_by_key.values(), key=lambda row: (row["name"], row["port"]))
-    for row in rows:
-        if "count" not in row:
-            row["count"] = 1
-    return rows
+        for normalized_name, name in sorted(configured_names.items())
+    ]
 
 
 class CredentialCheckThread(QThread):
@@ -226,8 +152,12 @@ class CredentialCheckThread(QThread):
         try:
             host = cfg.get("host", "") if isinstance(cfg, dict) else str(cfg)
             db = cfg.get("db", "*LOCAL") if isinstance(cfg, dict) else "*LOCAL"
-            worker.check_database_connection(host, db, username, password)
-            return {"status": "OK", "message": "Credentials accepted."}
+            host_name = worker.check_database_connection(host, db, username, password)
+            return {
+                "status": "OK",
+                "message": "Credentials accepted.",
+                "host_name": host_name,
+            }
         except Exception as exc:
             return {"status": "AUTH_ERROR", "message": str(exc)}
 
@@ -662,7 +592,6 @@ class LparCardWidget(QFrame):
         self.current_subsystems_data = []
         self.current_ports_data = []
         self.current_webapps_data = []
-        self.current_web_app_ports = []
         self.config_key = server_name
         self.detail_expanded = True
         self.last_success_ts = None
@@ -689,8 +618,8 @@ class LparCardWidget(QFrame):
         self.webapp_jobs_dialog = None
         
         self.setMinimumWidth(0)
-        self.setFixedHeight(360)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMinimumHeight(360)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(16, 16, 16, 16)
@@ -810,8 +739,8 @@ class LparCardWidget(QFrame):
                 if widget is not None:
                     widget.setParent(None)
 
-    def _refresh_webapps_widget(self, active_jobs_detail, ports, configured_web_apps=None):
-        web_apps = build_web_app_rows(active_jobs_detail, ports, configured_web_apps)
+    def _refresh_webapps_widget(self, active_jobs_detail, configured_web_apps=None):
+        web_apps = build_web_app_rows(active_jobs_detail, configured_web_apps)
         if not self.detail_expanded:
             return
 
@@ -1239,6 +1168,8 @@ class LparCardWidget(QFrame):
             parent=self
         )
         self.subsys_layout.addWidget(sub_widget)
+        sub_widget.show()
+        self.subsystem_container.updateGeometry()
 
     def _refresh_ports_widget(self, ports):
         if not self.detail_expanded:
@@ -1263,6 +1194,8 @@ class LparCardWidget(QFrame):
 
         badges_widget = StatusBadgesWidget(ports)
         self.ports_layout.addWidget(badges_widget)
+        badges_widget.show()
+        self.ports_container.updateGeometry()
 
     def update_data(self, data):
         display_name = str(data.get("host_name") or data.get("server") or self.server_name).strip()
@@ -1290,7 +1223,6 @@ class LparCardWidget(QFrame):
         pool_threads = data.get("pool_threads", self.current_pool_threads)
         storage_pools_loaded = self.current_storage_pools_loaded
         web_app_jobs_detail = data.get("web_app_jobs_detail", {})
-        web_app_ports = data.get("web_app_ports", [])
         subsystems = data.get("subsystems", [])
         ports = data.get("ports", [])
 
@@ -1310,7 +1242,6 @@ class LparCardWidget(QFrame):
             pool_threads = self.current_pool_threads
             storage_pools_loaded = self.current_storage_pools_loaded
             web_app_jobs_detail = self.current_web_app_jobs_detail
-            web_app_ports = self.current_web_app_ports
         elif status in ("ONLINE", "DEGRADED"):
             if "storage_pools" in data or "pool_threads" in data:
                 storage_pools_loaded = True
@@ -1352,7 +1283,6 @@ class LparCardWidget(QFrame):
             repr(storage_pools),
             repr(pool_threads),
             repr(web_app_jobs_detail),
-            repr(web_app_ports),
             repr(subsystems),
             repr(ports),
             is_uncapped,
@@ -1382,7 +1312,6 @@ class LparCardWidget(QFrame):
         self.current_pool_threads = pool_threads if isinstance(pool_threads, list) else []
         self.current_storage_pools_loaded = storage_pools_loaded
         self.current_web_app_jobs_detail = web_app_jobs_detail if isinstance(web_app_jobs_detail, dict) else {}
-        self.current_web_app_ports = web_app_ports if isinstance(web_app_ports, list) else []
         self.current_subsystems_data = subsystems
         self.current_ports_data = ports
 
@@ -1472,10 +1401,10 @@ class LparCardWidget(QFrame):
         self._refresh_subsystem_widget(self.current_subsystems_data)
         self._refresh_webapps_widget(
             self.current_active_jobs_detail,
-            self.current_ports_data + self.current_web_app_ports,
             EXPECTED_WEB_APPS.get(str(self.config_key or self.server_name).strip().upper(), []),
         )
         self._refresh_ports_widget(ports)
+        self.updateGeometry()
 
 
 class GlobalAlertsWidget(QGroupBox):
@@ -1727,14 +1656,24 @@ class IBMiDashboard(QMainWindow):
         self._update_download_url = ""
         self.version_str = version_str
         self.setWindowTitle(f"{APP_NAME} - v{version_str}")
-        self.setGeometry(100, 100, 900, 600)
 
         app = QApplication.instance()
+        screen = app.primaryScreen() if app is not None else None
+        if screen is not None:
+            available = screen.availableGeometry()
+            initial_width = min(1750, available.width())
+            initial_height = min(950, available.height())
+            self.resize(initial_width, initial_height)
+            self.move(
+                available.center().x() - initial_width // 2,
+                available.center().y() - initial_height // 2,
+            )
+        else:
+            self.resize(1200, 800)
         self.is_dark_theme = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
         self._theme_loading_dialog = None
 
         self.setWindowIcon(QIcon(resource_path("logo.png")))
-        self.resize(1750, 950)
 
         self.is_monitoring = False
         self.credentials_validated = False
@@ -1969,6 +1908,11 @@ class IBMiDashboard(QMainWindow):
         )
         self._refresh_analytics_tab_icons()
 
+        self.content_stack.setMinimumSize(0, 0)
+        self.content_stack.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
+        )
         self.central_layout.addWidget(self.sidebar)
         self.central_layout.addWidget(self.content_stack)
         self.set_current_page("monitor")
@@ -1978,6 +1922,34 @@ class IBMiDashboard(QMainWindow):
         self.apply_theme_state()
 
         self._create_startup_loading_overlay()
+        self._weekly_report_timer = QTimer(self)
+        self._weekly_report_timer.setSingleShot(True)
+        self._weekly_report_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self._weekly_report_timer.timeout.connect(
+            self._check_weekly_report_and_reschedule
+        )
+        self._weekly_report_retry_timer = QTimer(self)
+        self._weekly_report_retry_timer.setInterval(60 * 60 * 1000)
+        self._weekly_report_retry_timer.timeout.connect(
+            self._run_weekly_report_check
+        )
+        self._schedule_next_weekly_report()
+        QTimer.singleShot(0, self._run_weekly_report_check)
+
+    def _schedule_next_weekly_report(self):
+        self._weekly_report_timer.start(
+            milliseconds_until_next_saturday_midnight()
+        )
+
+    def _check_weekly_report_and_reschedule(self):
+        self._run_weekly_report_check()
+        self._schedule_next_weekly_report()
+
+    def _run_weekly_report_check(self):
+        if self._maybe_export_weekly_report():
+            self._weekly_report_retry_timer.stop()
+        elif load_weekly_report_email().get("enabled", False):
+            self._weekly_report_retry_timer.start()
 
     def _create_startup_loading_overlay(self):
         self.startup_loading_overlay = QFrame(self)
@@ -2067,6 +2039,7 @@ class IBMiDashboard(QMainWindow):
             "asp_workbook_path": self.asp_workbook_input.text(),
             "cpu_workbook_path": self.cpu_workbook_input.text(),
             "smtp_enabled": self.smtp_enabled.isChecked(),
+            "weekly_asp_cpu_report_enabled": self.weekly_asp_cpu_report_checkbox.isChecked(),
             "smtp_server": self.smtp_server_input.text(),
             "smtp_port": self.smtp_port_input.text(),
             "smtp_tls": self.smtp_tls_checkbox.isChecked(),
@@ -2078,6 +2051,13 @@ class IBMiDashboard(QMainWindow):
             "smtp_cooldown": self.smtp_cooldown_input.text(),
             "refresh_interval": self.refresh_interval_combo.currentIndex(),
             "log_dedupe": self.log_dedupe_combo.currentIndex(),
+            "weekly_smtp_server": self.weekly_smtp_server_input.text(),
+            "weekly_smtp_port": self.weekly_smtp_port_input.text(),
+            "weekly_smtp_tls": self.weekly_smtp_tls_checkbox.isChecked(),
+            "weekly_smtp_username": self.weekly_smtp_username_input.text(),
+            "weekly_smtp_password": self.weekly_smtp_password_input.text(),
+            "weekly_smtp_from": self.weekly_smtp_from_input.text(),
+            "weekly_smtp_to": self.weekly_smtp_to_input.text(),
         }
 
     def _restore_settings_snapshot(self):
@@ -2089,6 +2069,9 @@ class IBMiDashboard(QMainWindow):
         self.asp_workbook_input.setText(snapshot["asp_workbook_path"])
         self.cpu_workbook_input.setText(snapshot["cpu_workbook_path"])
         self.smtp_enabled.setChecked(snapshot["smtp_enabled"])
+        self.weekly_asp_cpu_report_checkbox.setChecked(
+            snapshot["weekly_asp_cpu_report_enabled"]
+        )
         self.smtp_server_input.setText(snapshot["smtp_server"])
         self.smtp_port_input.setText(snapshot["smtp_port"])
         self.smtp_tls_checkbox.setChecked(snapshot["smtp_tls"])
@@ -2100,6 +2083,13 @@ class IBMiDashboard(QMainWindow):
         self.smtp_cooldown_input.setText(snapshot["smtp_cooldown"])
         self.refresh_interval_combo.setCurrentIndex(snapshot["refresh_interval"])
         self.log_dedupe_combo.setCurrentIndex(snapshot["log_dedupe"])
+        self.weekly_smtp_server_input.setText(snapshot["weekly_smtp_server"])
+        self.weekly_smtp_port_input.setText(snapshot["weekly_smtp_port"])
+        self.weekly_smtp_tls_checkbox.setChecked(snapshot["weekly_smtp_tls"])
+        self.weekly_smtp_username_input.setText(snapshot["weekly_smtp_username"])
+        self.weekly_smtp_password_input.setText(snapshot["weekly_smtp_password"])
+        self.weekly_smtp_from_input.setText(snapshot["weekly_smtp_from"])
+        self.weekly_smtp_to_input.setText(snapshot["weekly_smtp_to"])
 
         self.lpar_table.setRowCount(0)
         for row_values in snapshot["lpar_rows"]:
@@ -2290,14 +2280,24 @@ class IBMiDashboard(QMainWindow):
         self.storage_page_layout.setSpacing(22)
         self.settings_tab_icon_files = ("Cred.svg", "smtp.svg", "configure.svg", "BnR.svg")
         tab_pages = (
-            (self.credentials_page, "Credentials"),
+            (self.credentials_page, "Credentials && Diagnostics"),
             (self.smtp_page, "Email && Alerts"),
             (self.lpar_page, "LPAR Configuration"),
             (self.storage_page, "Storage && System"),
         )
         for index, (page, title) in enumerate(tab_pages):
+            page_scroll_area = QScrollArea(self.settings_tab_widget)
+            page_scroll_area.setWidgetResizable(True)
+            page_scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+            page_scroll_area.setHorizontalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            page_scroll_area.setVerticalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            )
+            page_scroll_area.setWidget(page)
             self.settings_tab_widget.addTab(
-                page,
+                page_scroll_area,
                 self._settings_tab_icon(index),
                 title,
             )
@@ -2408,7 +2408,7 @@ class IBMiDashboard(QMainWindow):
         self.lpar_table.setHorizontalHeaderLabels([
             "IP / Hostname", "Database Name", "Daily Backup Name",
             "Journal Backup Name", "Monthly Backup Name", "Expected Subsystems",
-            "Monitored Ports (Port:Name)", "Web Apps (Job:Port)"
+            "Monitored Ports (Port:Name)", "Web Apps (Job Name)"
         ])
         self.lpar_table.setAlternatingRowColors(True)
         self.lpar_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -2508,6 +2508,7 @@ class IBMiDashboard(QMainWindow):
         smtp_layout.setContentsMargins(18, 16, 18, 16)
         smtp_layout.setSpacing(16)
         email_cfg = load_email_alerts()
+        weekly_email_cfg = load_weekly_report_email()
 
         smtp_options_row = QHBoxLayout()
         self.smtp_enabled = QCheckBox("Enable email alerts")
@@ -2518,12 +2519,17 @@ class IBMiDashboard(QMainWindow):
         smtp_options_row.addWidget(self.smtp_tls_checkbox)
         smtp_options_row.addStretch()
         smtp_layout.addLayout(smtp_options_row)
+        weekly_report_help = QLabel(
+            "These mail settings are independent from ASP alert email settings."
+        )
+        weekly_report_help.setObjectName("settingsMutedText")
+        smtp_layout.addWidget(weekly_report_help)
 
         smtp_fields_grid = QGridLayout()
         smtp_fields_grid.setHorizontalSpacing(24)
         smtp_fields_grid.setVerticalSpacing(18)
 
-        def add_smtp_field(row, column, label_text, control):
+        def add_smtp_field(row, column, label_text, control, target_grid=None):
             field_layout = QVBoxLayout()
             field_layout.setSpacing(8)
             field_label = QLabel(label_text)
@@ -2532,7 +2538,8 @@ class IBMiDashboard(QMainWindow):
             control.setMinimumHeight(38)
             field_layout.addWidget(field_label)
             field_layout.addWidget(control)
-            smtp_fields_grid.addLayout(field_layout, row, column)
+            grid = smtp_fields_grid if target_grid is None else target_grid
+            grid.addLayout(field_layout, row, column)
 
         self.smtp_server_input = QLineEdit(str(email_cfg.get("smtp_server", "")))
         self.smtp_server_input.setPlaceholderText("smtp.office365.com")
@@ -2578,6 +2585,87 @@ class IBMiDashboard(QMainWindow):
         smtp_layout.addLayout(smtp_actions_row)
         smtp_layout.addStretch()
         self.smtp_page_layout.addWidget(smtp_tab)
+
+        weekly_report_tab = QGroupBox("Weekly ASP/CPU Report Email")
+        weekly_report_tab.setObjectName("settingsCard")
+        weekly_report_layout = QVBoxLayout(weekly_report_tab)
+        weekly_report_layout.setContentsMargins(18, 16, 18, 16)
+        weekly_report_layout.setSpacing(12)
+        weekly_report_options = QHBoxLayout()
+        self.weekly_asp_cpu_report_checkbox = QCheckBox("Weekly ASP/CPU report")
+        self.weekly_asp_cpu_report_checkbox.setChecked(
+            bool(weekly_email_cfg.get("enabled", False))
+        )
+        weekly_report_options.addWidget(self.weekly_asp_cpu_report_checkbox)
+        self.weekly_smtp_tls_checkbox = QCheckBox("Use TLS")
+        self.weekly_smtp_tls_checkbox.setChecked(
+            bool(weekly_email_cfg.get("use_tls", True))
+        )
+        weekly_report_options.addWidget(self.weekly_smtp_tls_checkbox)
+        weekly_report_options.addStretch()
+        weekly_report_layout.addLayout(weekly_report_options)
+
+        weekly_report_fields_grid = QGridLayout()
+        weekly_report_fields_grid.setHorizontalSpacing(24)
+        weekly_report_fields_grid.setVerticalSpacing(18)
+
+        self.weekly_smtp_server_input = QLineEdit(
+            str(weekly_email_cfg.get("smtp_server", ""))
+        )
+        self.weekly_smtp_server_input.setPlaceholderText("smtp.office365.com")
+        self.weekly_smtp_port_input = QLineEdit(str(weekly_email_cfg.get("port", 587)))
+        self.weekly_smtp_username_input = QLineEdit(
+            str(weekly_email_cfg.get("username", ""))
+        )
+        self.weekly_smtp_password_input = QLineEdit()
+        self.weekly_smtp_password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.weekly_smtp_password_input.setPlaceholderText(
+            "Leave blank to keep saved password"
+        )
+        self.weekly_smtp_from_input = QLineEdit(
+            str(weekly_email_cfg.get("from_address", ""))
+        )
+        weekly_recipients = weekly_email_cfg.get("to_addresses", [])
+        self.weekly_smtp_to_input = QLineEdit(", ".join(weekly_recipients))
+        self.weekly_smtp_to_input.setPlaceholderText("recipient@example.com, ...")
+        add_smtp_field(
+            0, 0, "Weekly SMTP Server", self.weekly_smtp_server_input,
+            weekly_report_fields_grid,
+        )
+        add_smtp_field(
+            0, 1, "Weekly SMTP Port", self.weekly_smtp_port_input,
+            weekly_report_fields_grid,
+        )
+        add_smtp_field(
+            1, 0, "Weekly SMTP Username", self.weekly_smtp_username_input,
+            weekly_report_fields_grid,
+        )
+        add_smtp_field(
+            1, 1, "Weekly SMTP Password", self.weekly_smtp_password_input,
+            weekly_report_fields_grid,
+        )
+        add_smtp_field(
+            2, 0, "Weekly From Address", self.weekly_smtp_from_input,
+            weekly_report_fields_grid,
+        )
+        add_smtp_field(
+            2, 1, "Weekly To Addresses", self.weekly_smtp_to_input,
+            weekly_report_fields_grid,
+        )
+        weekly_report_layout.addLayout(weekly_report_fields_grid)
+        weekly_report_actions = QHBoxLayout()
+        weekly_report_actions.addStretch()
+        self.weekly_report_test_email_btn = QPushButton("Send Weekly Test Email")
+        self.weekly_report_test_email_btn.setObjectName("settingsSecondaryButton")
+        self.weekly_report_test_email_btn.setCursor(
+            QCursor(Qt.CursorShape.PointingHandCursor)
+        )
+        self.weekly_report_test_email_btn.clicked.connect(
+            self.send_weekly_report_test_email
+        )
+        weekly_report_actions.addWidget(self.weekly_report_test_email_btn)
+        weekly_report_layout.addLayout(weekly_report_actions)
+        self.smtp_page_layout.addWidget(weekly_report_tab)
         self.smtp_page_layout.addStretch(1)
         self.lpar_page_layout.addWidget(lpar_tab, stretch=1)
         self.storage_page_layout.addWidget(storage_tab)
@@ -2673,6 +2761,15 @@ class IBMiDashboard(QMainWindow):
             self.refresh_interval_combo,
             self.log_dedupe_combo,
             self.test_email_btn,
+            self.weekly_asp_cpu_report_checkbox,
+            self.weekly_smtp_server_input,
+            self.weekly_smtp_port_input,
+            self.weekly_smtp_tls_checkbox,
+            self.weekly_smtp_username_input,
+            self.weekly_smtp_password_input,
+            self.weekly_smtp_from_input,
+            self.weekly_smtp_to_input,
+            self.weekly_report_test_email_btn,
         ]
         for widget in self._settings_editable_widgets:
             if isinstance(widget, QLineEdit):
@@ -3175,6 +3272,32 @@ class IBMiDashboard(QMainWindow):
                 self.smtp_username_input.text().strip()
             )
             payload["EMAIL_ALERTS"] = email_alerts
+            weekly_report_email = dict(
+                cast(dict, payload.get("WEEKLY_REPORT_EMAIL", {}))
+            )
+            saved_weekly_email = load_weekly_report_email()
+            saved_weekly_password = (
+                saved_weekly_email.get("password", "")
+                if saved_weekly_email.get("username", "")
+                == self.weekly_smtp_username_input.text().strip()
+                else ""
+            )
+            weekly_report_email.update({
+                "enabled": self.weekly_asp_cpu_report_checkbox.isChecked(),
+                "smtp_server": self.weekly_smtp_server_input.text().strip(),
+                "port": int(self.weekly_smtp_port_input.text().strip() or 587),
+                "use_tls": self.weekly_smtp_tls_checkbox.isChecked(),
+                "username": self.weekly_smtp_username_input.text().strip(),
+                "from_address": self.weekly_smtp_from_input.text().strip(),
+                "to_addresses": [
+                    address.strip()
+                    for address in self.weekly_smtp_to_input.text().split(",")
+                    if address.strip()
+                ],
+                "password": self.weekly_smtp_password_input.text()
+                or saved_weekly_password,
+            })
+            payload["WEEKLY_REPORT_EMAIL"] = weekly_report_email
             payload["LOGIN_CREDENTIALS"] = {
                 "remember": self.remember_creds_checkbox.isChecked(),
                 "username": self.user_input.text().strip(),
@@ -3200,6 +3323,20 @@ class IBMiDashboard(QMainWindow):
         try:
             payload = load_settings_backup(source_path)
             email_alerts = payload["EMAIL_ALERTS"]
+            weekly_report_email = payload.get("WEEKLY_REPORT_EMAIL")
+            if not isinstance(weekly_report_email, dict):
+                weekly_report_email = {
+                    "enabled": email_alerts.get(
+                        "weekly_asp_cpu_report_enabled", False
+                    ),
+                    "smtp_server": email_alerts.get("smtp_server", ""),
+                    "port": email_alerts.get("port", 587),
+                    "use_tls": email_alerts.get("use_tls", True),
+                    "username": email_alerts.get("username", ""),
+                    "from_address": email_alerts.get("from_address", ""),
+                    "to_addresses": email_alerts.get("to_addresses", []),
+                    "password": email_alerts.get("password", ""),
+                }
             login_credentials = payload["LOGIN_CREDENTIALS"]
             self.user_input.setText(str(login_credentials.get("username", "")))
             self.pass_input.setText(str(login_credentials.get("password", "")))
@@ -3216,6 +3353,35 @@ class IBMiDashboard(QMainWindow):
             self.smtp_cooldown_input.setText(str(email_alerts.get("cooldown_minutes", 10)))
             self.refresh_interval_combo.setCurrentIndex({0: 0, 3000: 1, 5000: 2, 10000: 3}.get(int(email_alerts.get("refresh_interval_ms", 0) or 0), 0))
             self.log_dedupe_combo.setCurrentIndex({0: 0, 30: 1, 60: 2, 300: 3}.get(int(email_alerts.get("log_dedupe_seconds", 60) or 60), 2))
+            self.weekly_asp_cpu_report_checkbox.setChecked(
+                bool(weekly_report_email.get("enabled", False))
+            )
+            self.weekly_smtp_server_input.setText(
+                str(weekly_report_email.get("smtp_server", ""))
+            )
+            self.weekly_smtp_port_input.setText(
+                str(weekly_report_email.get("port", 587))
+            )
+            self.weekly_smtp_tls_checkbox.setChecked(
+                bool(weekly_report_email.get("use_tls", True))
+            )
+            self.weekly_smtp_username_input.setText(
+                str(weekly_report_email.get("username", ""))
+            )
+            self.weekly_smtp_password_input.setText(
+                str(weekly_report_email.get("password", ""))
+            )
+            self.weekly_smtp_from_input.setText(
+                str(weekly_report_email.get("from_address", ""))
+            )
+            weekly_recipients = weekly_report_email.get("to_addresses", [])
+            if isinstance(weekly_recipients, str):
+                weekly_recipients = [
+                    address.strip()
+                    for address in weekly_recipients.split(",")
+                    if address.strip()
+                ]
+            self.weekly_smtp_to_input.setText(", ".join(weekly_recipients))
             restored_subsystems = payload["EXPECTED_SUBSYSTEMS"]
             restored_ports = payload["EXPECTED_PORTS"]
             restored_web_apps = payload.get("EXPECTED_WEB_APPS", {})
@@ -3257,13 +3423,12 @@ class IBMiDashboard(QMainWindow):
             for entry in web_apps:
                 if isinstance(entry, dict):
                     app_name = str(entry.get("job_name") or entry.get("name") or entry.get("job") or "").strip().upper()
-                    port_num = entry.get("port")
-                    if app_name and port_num is not None:
-                        web_app_parts.append(f"{app_name}:{port_num}")
+                    if app_name:
+                        web_app_parts.append(app_name)
                 elif isinstance(entry, str):
                     item = entry.strip()
                     if item:
-                        web_app_parts.append(item)
+                        web_app_parts.append(item.split(":", 1)[0].strip().upper())
             daily_name = cfg.get("daily_backup_name", "DAILYSWA") if isinstance(cfg, dict) else "DAILYSWA"
             journal_name = cfg.get("journal_backup_name", "DAILYSWA") if isinstance(cfg, dict) else "DAILYSWA"
             monthly_name = cfg.get("monthly_backup_name", "MONTHLYBKU") if isinstance(cfg, dict) else "MONTHLYBKU"
@@ -3306,7 +3471,7 @@ class IBMiDashboard(QMainWindow):
             "MONTHLYBKU",
             "QINTER, QBATCH, QSYSWRK",
             "21:FTP, 22:SSH",
-            "DLRWEB:10078",
+            "DLRWEB",
         )
         for column, value in enumerate(values):
             self.lpar_table.setItem(row, column, self._make_lpar_table_item(value))
@@ -3356,6 +3521,65 @@ class IBMiDashboard(QMainWindow):
         self.test_email_thread.result_ready.connect(self._handle_test_email_result)
         self.test_email_thread.start()
 
+    def send_weekly_report_test_email(self):
+        smtp_server = self.weekly_smtp_server_input.text().strip()
+        username = self.weekly_smtp_username_input.text().strip()
+        saved_weekly_email = load_weekly_report_email()
+        saved_password = (
+            saved_weekly_email.get("password", "")
+            if saved_weekly_email.get("username", "") == username
+            else ""
+        )
+        password = (
+            self.weekly_smtp_password_input.text()
+            or saved_password
+        )
+        from_address = self.weekly_smtp_from_input.text().strip() or username
+        to_addresses = [
+            address.strip()
+            for address in self.weekly_smtp_to_input.text().split(",")
+            if address.strip()
+        ]
+        try:
+            port = int(self.weekly_smtp_port_input.text().strip() or 587)
+        except ValueError:
+            show_warning_dialog(
+                self,
+                "Invalid SMTP Port",
+                "Please enter a valid weekly report SMTP port.",
+            )
+            return
+
+        if not smtp_server or not to_addresses or "@" not in from_address:
+            show_warning_dialog(
+                self,
+                "Incomplete Weekly Report Mail Settings",
+                "Enter a weekly SMTP server, a valid From Address, and at least one recipient.",
+            )
+            return
+        if any("@" not in address for address in to_addresses):
+            show_warning_dialog(
+                self,
+                "Invalid Recipient",
+                "Please check the weekly report recipient email addresses.",
+            )
+            return
+
+        self.weekly_report_test_email_btn.setEnabled(False)
+        self.weekly_report_test_email_thread = TestEmailThread(
+            smtp_server=smtp_server,
+            port=port,
+            use_tls=self.weekly_smtp_tls_checkbox.isChecked(),
+            username=username,
+            password=password,
+            from_address=from_address,
+            to_addresses=to_addresses,
+        )
+        self.weekly_report_test_email_thread.result_ready.connect(
+            self._handle_weekly_report_test_email_result
+        )
+        self.weekly_report_test_email_thread.start()
+
     def _handle_test_email_result(self, success, message):
         self.test_email_btn.setEnabled(True)
         if success:
@@ -3364,6 +3588,15 @@ class IBMiDashboard(QMainWindow):
         else:
             SYSTEM_LOGGER.warning("SMTP test email failed")
             show_critical_dialog(self, "Test Email Failed", message)
+
+    def _handle_weekly_report_test_email_result(self, success, message):
+        self.weekly_report_test_email_btn.setEnabled(True)
+        if success:
+            SYSTEM_LOGGER.info("Weekly report SMTP test email sent successfully")
+            show_information_dialog(self, "Weekly Report Test Email", message)
+        else:
+            SYSTEM_LOGGER.warning("Weekly report SMTP test email failed")
+            show_critical_dialog(self, "Weekly Report Test Email Failed", message)
 
     def save_settings_page(self):
         if self.is_monitoring:
@@ -3411,10 +3644,9 @@ class IBMiDashboard(QMainWindow):
                 item = part.strip()
                 if not item:
                     continue
-                if ":" in item:
-                    app_name, port_num = item.split(":", 1)
-                    if port_num.strip().isdigit():
-                        parsed_web_apps.append({"job_name": app_name.strip().upper(), "port": int(port_num.strip())})
+                app_name = item.split(":", 1)[0].strip().upper()
+                if app_name:
+                    parsed_web_apps.append({"job_name": app_name})
             new_ports[host.upper()] = parsed_ports
             new_web_apps[host.upper()] = parsed_web_apps
 
@@ -3422,6 +3654,12 @@ class IBMiDashboard(QMainWindow):
             smtp_port = int(self.smtp_port_input.text().strip() or 587)
         except ValueError:
             smtp_port = 587
+        try:
+            weekly_smtp_port = int(
+                self.weekly_smtp_port_input.text().strip() or 587
+            )
+        except ValueError:
+            weekly_smtp_port = 587
         try:
             threshold_percent = float(self.smtp_threshold_input.text().strip() or 40)
         except ValueError:
@@ -3458,6 +3696,22 @@ class IBMiDashboard(QMainWindow):
         smtp_password = self.smtp_password_input.text()
         if smtp_password:
             email_alerts["password"] = smtp_password
+        weekly_report_email = {
+            "enabled": self.weekly_asp_cpu_report_checkbox.isChecked(),
+            "smtp_server": self.weekly_smtp_server_input.text().strip(),
+            "port": weekly_smtp_port,
+            "use_tls": self.weekly_smtp_tls_checkbox.isChecked(),
+            "username": self.weekly_smtp_username_input.text().strip(),
+            "from_address": self.weekly_smtp_from_input.text().strip(),
+            "to_addresses": [
+                address.strip()
+                for address in self.weekly_smtp_to_input.text().split(",")
+                if address.strip()
+            ],
+        }
+        weekly_smtp_password = self.weekly_smtp_password_input.text()
+        if weekly_smtp_password:
+            weekly_report_email["password"] = weekly_smtp_password
 
         if not new_configs:
             self.status_label.setText("Error: Add at least one LPAR before saving.")
@@ -3483,6 +3737,7 @@ class IBMiDashboard(QMainWindow):
             new_ports,
             expected_web_apps=new_web_apps,
             email_alerts=email_alerts,
+            weekly_report_email=weekly_report_email,
             login_credentials={"remember": remember_credentials, "username": login_username},
             log_root=logs_root,
             asp_workbook_path=self.asp_workbook_input.text().strip(),
@@ -3507,7 +3762,42 @@ class IBMiDashboard(QMainWindow):
         SYSTEM_LOGGER.info("Settings saved and applied")
         self._settings_saved_snapshot = self._capture_settings_snapshot()
         self._update_settings_save_state()
+        QTimer.singleShot(0, self._run_weekly_report_check)
         show_information_dialog(self, "Settings Applied", "Settings were saved and applied successfully.")
+
+    def _maybe_export_weekly_report(self):
+        if not load_weekly_report_email().get("enabled", False):
+            return True
+
+        try:
+            week_start, week_end = latest_complete_week()
+            report_path = build_weekly_report_path(week_start, week_end)
+            if not os.path.exists(report_path):
+                report_path = generate_weekly_asp_cpu_report(week_start, week_end)
+                if not report_path:
+                    return False
+                SYSTEM_LOGGER.info("Weekly ASP/CPU report exported to %s", report_path)
+            if weekly_report_email_sent(week_end):
+                return True
+            send_weekly_report_email(report_path, week_start, week_end)
+            mark_weekly_report_email_sent(week_end, report_path)
+        except Exception:
+            SYSTEM_LOGGER.exception(
+                "Weekly ASP/CPU report email failed%s",
+                (
+                    f" for {week_start.isoformat()} through {week_end.isoformat()}"
+                    if "week_start" in locals() and "week_end" in locals()
+                    else ""
+                ),
+            )
+            return False
+
+        SYSTEM_LOGGER.info(
+            "Weekly ASP/CPU report emailed for %s through %s",
+            week_start.isoformat(),
+            week_end.isoformat(),
+        )
+        return True
 
     def _update_start_controls_state(self):
         enabled = self.credentials_validated and bool(self.active_server_configs)
@@ -3687,13 +3977,19 @@ class IBMiDashboard(QMainWindow):
         self._credential_check_results = results
         ok_servers = []
         auth_error_servers = []
+        host_names = {}
         for server_name, result in results.items():
             if result.get("status") == "OK":
                 ok_servers.append(server_name)
                 SYSTEM_LOGGER.info("Credential validation succeeded for LPAR %s", server_name)
+                host_name = str(result.get("host_name") or "").strip()
+                if host_name:
+                    host_names[server_name] = host_name
             else:
                 auth_error_servers.append(server_name)
                 SYSTEM_LOGGER.warning("Credential validation failed for LPAR %s", server_name)
+
+        worker.set_excel_server_host_names(host_names)
 
         if ok_servers and not auth_error_servers:
             details = ", ".join(ok_servers)
@@ -3717,6 +4013,19 @@ class IBMiDashboard(QMainWindow):
         self._update_start_controls_state()
         self.toggle_btn.setEnabled(True)
         self.toggle_btn.setText("Check Login Creds")
+        if self.credentials_validated:
+            missing_host_names = sorted(
+                str(server_name)
+                for server_name in self.active_server_configs
+                if str(server_name) not in host_names
+            )
+            if missing_host_names:
+                SYSTEM_LOGGER.warning(
+                    "Excel catch-up deferred until login resolves host names for: %s",
+                    ", ".join(missing_host_names),
+                )
+            else:
+                worker.start_daily_excel_sync()
         if self.credentials_validated:
             self.backup_management_widget.start_hourly_refresh()
 
@@ -3758,6 +4067,8 @@ class IBMiDashboard(QMainWindow):
         super().resizeEvent(event)
         if hasattr(self, "startup_loading_overlay"):
             self.startup_loading_overlay.setGeometry(self.rect())
+        if hasattr(self, "cards_scroll_area"):
+            QTimer.singleShot(0, self.filter_and_sort_cards)
 
     def apply_theme_state(self):
         page_background = "#171819" if self.is_dark_theme else "#f6f8fa"
@@ -3987,12 +4298,12 @@ class IBMiDashboard(QMainWindow):
 
         dashboard_content_layout.addLayout(filter_bar_layout)
 
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_area.setStyleSheet("QScrollArea { background-color: transparent; }")
+        self.cards_scroll_area = QScrollArea()
+        self.cards_scroll_area.setWidgetResizable(True)
+        self.cards_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.cards_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.cards_scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.cards_scroll_area.setStyleSheet("QScrollArea { background-color: transparent; }")
 
         scroll_content = QWidget()
         scroll_content.setMinimumWidth(0)
@@ -4003,8 +4314,8 @@ class IBMiDashboard(QMainWindow):
 
         self.rebuild_server_cards()
 
-        scroll_area.setWidget(scroll_content)
-        dashboard_content_layout.addWidget(scroll_area, stretch=1)
+        self.cards_scroll_area.setWidget(scroll_content)
+        dashboard_content_layout.addWidget(self.cards_scroll_area, stretch=1)
         self._update_ping_indicator()
 
     def _latency_color_for_ms(self, latency_ms):
@@ -4269,6 +4580,16 @@ class IBMiDashboard(QMainWindow):
                 card.set_status("ONLINE")
 
     def filter_and_sort_cards(self):
+        card_viewport_width = 0
+        if hasattr(self, "cards_scroll_area"):
+            card_viewport_width = self.cards_scroll_area.viewport().width()
+        if card_viewport_width <= 0:
+            sidebar_width = self.sidebar.width() if hasattr(self, "sidebar") else 0
+            card_viewport_width = max(
+                0,
+                self.width() - sidebar_width,
+            )
+        cols = max(1, min(4, (card_viewport_width + 10) // 260))
         query = self.search_input.text().strip().lower()
         status_filter = self.status_filter_combo.currentIndex()
         sort_mode = self.sort_combo.currentIndex()
@@ -4302,6 +4623,7 @@ class IBMiDashboard(QMainWindow):
             status_filter,
             sort_mode,
             group_mode,
+            cols,
             tuple(filtered_servers),
         )
         if self._last_card_layout_signature == layout_signature:
@@ -4315,7 +4637,6 @@ class IBMiDashboard(QMainWindow):
                 if widget is not None:
                     widget.setParent(None)
 
-        cols = 4
         current_row = 0
 
         if group_mode == 0:
@@ -4329,7 +4650,7 @@ class IBMiDashboard(QMainWindow):
                 for idx, srv in enumerate(filtered_servers):
                     r = idx // cols
                     c = idx % cols
-                    self.cards_grid.addWidget(self.card_widgets[srv], r, c, Qt.AlignmentFlag.AlignTop)
+                    self.cards_grid.addWidget(self.card_widgets[srv], r, c)
             else:
                 for group_name, srv_list in sorted(groups.items()):
                     group_lbl = QLabel(f"📁 {group_name} Environment ({len(srv_list)})")
@@ -4341,7 +4662,7 @@ class IBMiDashboard(QMainWindow):
                     for idx, srv in enumerate(srv_list):
                         r = current_row + (idx // cols)
                         c = idx % cols
-                        self.cards_grid.addWidget(self.card_widgets[srv], r, c, Qt.AlignmentFlag.AlignTop)
+                        self.cards_grid.addWidget(self.card_widgets[srv], r, c)
                     current_row += (len(srv_list) + cols - 1) // cols
 
         elif group_mode == 1:
@@ -4358,7 +4679,7 @@ class IBMiDashboard(QMainWindow):
                 for idx, srv in enumerate(filtered_servers):
                     r = idx // cols
                     c = idx % cols
-                    self.cards_grid.addWidget(self.card_widgets[srv], r, c, Qt.AlignmentFlag.AlignTop)
+                    self.cards_grid.addWidget(self.card_widgets[srv], r, c)
             else:
                 for group_name, srv_list in groups.items():
                     if not srv_list:
@@ -4372,14 +4693,14 @@ class IBMiDashboard(QMainWindow):
                     for idx, srv in enumerate(srv_list):
                         r = current_row + (idx // cols)
                         c = idx % cols
-                        self.cards_grid.addWidget(self.card_widgets[srv], r, c, Qt.AlignmentFlag.AlignTop)
+                        self.cards_grid.addWidget(self.card_widgets[srv], r, c)
                     current_row += (len(srv_list) + cols - 1) // cols
 
         else:
             for idx, srv in enumerate(filtered_servers):
                 r = idx // cols
                 c = idx % cols
-                self.cards_grid.addWidget(self.card_widgets[srv], r, c, Qt.AlignmentFlag.AlignTop)
+                self.cards_grid.addWidget(self.card_widgets[srv], r, c)
 
         for c in range(cols):
             self.cards_grid.setColumnStretch(c, 1)

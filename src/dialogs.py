@@ -296,6 +296,28 @@ class FramelessDialog(QDialog):
 
     def showEvent(self, a0: QShowEvent | None):
         _install_dialog_chrome(self)
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            maximum_width = max(1, available.width() - 24)
+            maximum_height = max(1, available.height() - 24)
+            if self.width() > maximum_width or self.height() > maximum_height:
+                self.resize(
+                    min(self.width(), maximum_width),
+                    min(self.height(), maximum_height),
+                )
+
+            frame = self.frameGeometry()
+            x = min(
+                max(frame.x(), available.left()),
+                available.right() - frame.width() + 1,
+            )
+            y = min(
+                max(frame.y(), available.top()),
+                available.bottom() - frame.height() + 1,
+            )
+            if (x, y) != (frame.x(), frame.y()):
+                self.move(x, y)
         super().showEvent(a0)
 
 
@@ -416,6 +438,8 @@ class FramelessMessageDialog(FramelessDialog):
         self.accept()
 
     def exec_message(self):
+        _install_dialog_chrome(self)
+        self.adjustSize()
         self.exec()
         return self._selected_button
 
@@ -1444,13 +1468,12 @@ class WebAppJobsDialog(FramelessDialog):
         "JOB_STATUS",
         "TEMPORARY_STORAGE",
         "CPU_TIME",
-        "PORT",
     ]
 
     def __init__(self, server_name, web_apps=None, jobs_by_app=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"{server_name} - Web apps")
-        self.resize(1280, 620)
+        self.resize(1160, 620)
 
         app = QApplication.instance()
         is_dark = bool(app.property("is_dark_theme")) if app and app.property("is_dark_theme") is not None else True
@@ -1479,7 +1502,7 @@ class WebAppJobsDialog(FramelessDialog):
         cast(QHeaderView, self.table.verticalHeader()).setVisible(False)
         header = cast(QHeaderView, self.table.horizontalHeader())
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        for column, width in enumerate((130, 340, 140, 210, 140, 100)):
+        for column, width in enumerate((130, 340, 140, 210, 140)):
             self.table.setColumnWidth(column, width)
         header.setStretchLastSection(True)
         layout.addWidget(self.table)
@@ -1499,8 +1522,6 @@ class WebAppJobsDialog(FramelessDialog):
             app = apps_by_name.get(app_name, {})
             app_jobs = (jobs_by_app or {}).get(app_name, [])
             app_jobs = [job for job in app_jobs if isinstance(job, dict)]
-            port = app.get("port", "")
-            port_status = str(app.get("status") or "").strip().upper()
             if not app_jobs:
                 app_jobs = [{
                     "job_name": "No active jobs",
@@ -1508,14 +1529,14 @@ class WebAppJobsDialog(FramelessDialog):
                     "temporary_storage": "",
                     "cpu_time": "",
                 }]
-            grouped_rows.append((app_name, str(port), port_status, app_jobs))
+            grouped_rows.append((app_name, app_jobs))
 
         self.table.setSortingEnabled(False)
         self.table.clearContents()
-        self.table.setRowCount(sum(len(rows) for _, _, _, rows in grouped_rows))
+        self.table.setRowCount(sum(len(rows) for _, rows in grouped_rows))
         row_index = 0
         separator_rows = set()
-        for app_name, port, port_status, app_jobs in grouped_rows:
+        for app_name, app_jobs in grouped_rows:
             group_start = row_index
             if group_start:
                 separator_rows.add(group_start - 1)
@@ -1526,37 +1547,18 @@ class WebAppJobsDialog(FramelessDialog):
                     job.get("job_status", ""),
                     job.get("temporary_storage", ""),
                     job.get("cpu_time", ""),
-                    f"{port} - NOT LISTENING" if port_status == "DOWN" else (
-                        f"{port} - INVALID" if port_status == "INVALID" else port
-                    ),
                 )
                 for column, value in enumerate(values):
-                    if column in (0, 5) and row_index > group_start:
+                    if column == 0 and row_index > group_start:
                         continue
                     item = QTableWidgetItem(str(value))
-                    if column in (0, 5):
+                    if column == 0:
                         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    if column == 5 and port_status in {"DOWN", "INVALID"}:
-                        item.setBackground(
-                            QColor("#4a2428" if self._is_dark_theme else "#ffebe9")
-                        )
-                        item.setForeground(
-                            QColor("#ff7b72" if self._is_dark_theme else "#cf222e")
-                        )
-                        font = item.font()
-                        font.setBold(True)
-                        item.setFont(font)
-                        item.setToolTip(
-                            f"Port {port} is not listening."
-                            if port_status == "DOWN"
-                            else f"Port {port} is invalid."
-                        )
                     self.table.setItem(row_index, column, item)
                 row_index += 1
             group_size = len(app_jobs)
             if group_size > 1:
                 self.table.setSpan(group_start, 0, group_size, 1)
-                self.table.setSpan(group_start, 5, group_size, 1)
         self.table.separator_rows = separator_rows
         self.table.setSortingEnabled(False)
 

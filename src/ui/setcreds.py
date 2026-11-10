@@ -18,6 +18,7 @@ except Exception:
     _KEYRING_AVAILABLE = False
 
 _EMAIL_SERVICE_NAME = "AS400 Quantum Suite_smtp"
+_WEEKLY_REPORT_EMAIL_SERVICE_NAME = "AS400 Quantum Suite_weekly_report_smtp"
 _IBMI_SERVICE_NAME = "AS400 Quantum Suite_ibmi"
 _SETTINGS_BACKUP_FORMAT = "AS400 Quantum Suite settings backup"
 _SETTINGS_BACKUP_VERSION = 1
@@ -82,6 +83,41 @@ def get_email_password(username):
     if _KEYRING_AVAILABLE and keyring is not None:
         try:
             return keyring.get_password(_EMAIL_SERVICE_NAME, username) or ""
+        except Exception:
+            pass
+    return ""
+
+
+def save_weekly_report_email_password(username, password):
+    """Store the weekly report SMTP password separately from alert credentials."""
+    if not username:
+        return False
+    if _KEYRING_AVAILABLE and keyring is not None:
+        try:
+            keyring.set_password(
+                _WEEKLY_REPORT_EMAIL_SERVICE_NAME,
+                username,
+                password or "",
+            )
+            return True
+        except Exception:
+            return False
+    return False
+
+
+def get_weekly_report_email_password(username):
+    """Retrieve the weekly report SMTP password from its own keyring entry."""
+    if not username:
+        return ""
+    env_password = os.getenv("WEEKLY_REPORT_SMTP_PASSWORD")
+    if env_password is not None:
+        return str(env_password)
+    if _KEYRING_AVAILABLE and keyring is not None:
+        try:
+            return (
+                keyring.get_password(_WEEKLY_REPORT_EMAIL_SERVICE_NAME, username)
+                or ""
+            )
         except Exception:
             pass
     return ""
@@ -207,6 +243,60 @@ def load_email_alerts():
     return merged
 
 
+def load_weekly_report_email():
+    """Load the independent weekly-report SMTP profile, migrating legacy settings."""
+    config = _config_module()
+    config_path = config.get_config_path()
+    merged = config.DEFAULT_WEEKLY_REPORT_EMAIL.copy()
+    weekly_profile_found = False
+    legacy_profile = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as file:
+                data = json.load(file)
+            weekly_profile = data.get("WEEKLY_REPORT_EMAIL")
+            weekly_profile_found = isinstance(weekly_profile, dict)
+            if weekly_profile_found:
+                merged.update(weekly_profile)
+            legacy_profile = data.get("EMAIL_ALERTS", {})
+        except (OSError, ValueError, TypeError, AttributeError):
+            legacy_profile = {}
+
+    if not weekly_profile_found and isinstance(legacy_profile, dict):
+        for field in (
+            "smtp_server",
+            "port",
+            "use_tls",
+            "username",
+            "from_address",
+            "to_addresses",
+        ):
+            if field in legacy_profile:
+                merged[field] = legacy_profile[field]
+        merged["enabled"] = bool(
+            legacy_profile.get("weekly_asp_cpu_report_enabled", False)
+        )
+
+    merged["enabled"] = bool(merged.get("enabled", False))
+    merged["smtp_server"] = str(merged.get("smtp_server") or "").strip()
+    merged["username"] = str(merged.get("username") or "").strip()
+    merged["from_address"] = str(merged.get("from_address") or "").strip()
+    merged["to_addresses"] = _coerce_to_list(merged.get("to_addresses", []))
+    try:
+        merged["port"] = int(merged.get("port", 587) or 587)
+    except (TypeError, ValueError):
+        merged["port"] = 587
+    merged["use_tls"] = bool(merged.get("use_tls", True))
+
+    password = ""
+    if weekly_profile_found:
+        password = get_weekly_report_email_password(merged["username"])
+    elif isinstance(legacy_profile, dict):
+        password = get_email_password(merged["username"])
+    merged["password"] = password
+    return merged
+
+
 def save_all_configs(
     server_configs,
     expected_subsystems=None,
@@ -217,6 +307,7 @@ def save_all_configs(
     log_root=None,
     asp_workbook_path=None,
     cpu_workbook_path=None,
+    weekly_report_email=None,
 ):
     """Save server, alert, and login preferences into config.json."""
     config = _config_module()
@@ -243,12 +334,32 @@ def save_all_configs(
     merged_email = load_email_alerts()
     if isinstance(email_alerts, dict):
         merged_email.update(email_alerts)
+    merged_email.pop("weekly_asp_cpu_report_enabled", None)
 
     try:
         password = merged_email.pop("password", None)
         username = merged_email.get("username", "")
         if password is not None and username:
             save_email_password(username, password)
+    except Exception:
+        pass
+
+    merged_weekly_email = load_weekly_report_email()
+    if isinstance(weekly_report_email, dict):
+        previous_username = str(merged_weekly_email.get("username", "")).strip()
+        merged_weekly_email.update(weekly_report_email)
+        if (
+            previous_username
+            and previous_username != str(merged_weekly_email.get("username", "")).strip()
+            and "password" not in weekly_report_email
+        ):
+            merged_weekly_email["password"] = ""
+
+    try:
+        weekly_password = merged_weekly_email.pop("password", None)
+        weekly_username = merged_weekly_email.get("username", "")
+        if weekly_password is not None and weekly_username:
+            save_weekly_report_email_password(weekly_username, weekly_password)
     except Exception:
         pass
 
@@ -263,6 +374,7 @@ def save_all_configs(
             data[key] = value
 
     data["EMAIL_ALERTS"] = merged_email
+    data["WEEKLY_REPORT_EMAIL"] = merged_weekly_email
     if isinstance(login_credentials, dict):
         data["LOGIN_CREDENTIALS"] = {
             "remember": bool(login_credentials.get("remember", False)),

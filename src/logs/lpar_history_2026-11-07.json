@@ -1,0 +1,79 @@
+[
+  {
+    "timestamp": "2026-11-07 19:00:00",
+    "records": [
+      {
+        "entry_id": "20261107-1900-JDAD01",
+        "timestamp": "2026-11-07 19:00:00",
+        "lpar": "JDAD01",
+        "server": "JDAD01",
+        "host_name": "JDAD01",
+        "cpu": 191.83,
+        "asp": 72.23
+      },
+      {
+        "entry_id": "20261107-1900-JDAP01",
+        "timestamp": "2026-11-07 19:00:00",
+        "lpar": "JDAP01",
+        "server": "JDAP01",
+        "host_name": "JDAP01",
+        "cpu": 47.07,
+        "asp": 83.85
+      },
+      {
+        "entry_id": "20261107-1900-JDAP02",
+        "timestamp": "2026-11-07 19:00:00",
+        "lpar": "JDAP02",
+        "server": "JDAP02",
+        "host_name": "JDAP02",
+        "cpu": 91.88,
+        "asp": 69.12
+      },
+      {
+        "entry_id": "20261107-1900-JDAP03",
+        "timestamp": "2026-11-07 19:00:00",
+        "lpar": "JDAP03",
+        "server": "JDAP03",
+        "host_name": "JDAP03",
+        "cpu": 41.30,
+        "asp": 86.15
+      },
+      {
+        "entry_id": "20261107-1900-JDAP04",
+        "timestamp": "2026-11-07 19:00:00",
+        "lpar": "JDAP04",
+        "server": "JDAP04",
+        "host_name": "JDAP04",
+        "cpu": 43.11,
+        "asp": 80.36
+      },
+      {
+        "entry_id": "20261107-1900-JDAP05",
+        "timestamp": "2026-11-07 19:00:00",
+        "lpar": "JDAP05",
+        "server": "JDAP05",
+        "host_name": "JDAP05",
+        "cpu": 38.39,
+        "asp": 86.81
+      },
+      {
+        "entry_id": "20261107-1900-JDAP06",
+        "timestamp": "2026-11-07 19:00:00",
+        "lpar": "JDAP06",
+        "server": "JDAP06",
+        "host_name": "JDAP06",
+        "cpu": 68.32,
+        "asp": 79.05
+      },
+      {
+        "entry_id": "20261107-1900-JDAP07",
+        "timestamp": "2026-11-07 19:00:00",
+        "lpar": "JDAP07",
+        "server": "JDAP07",
+        "host_name": "JDAP07",
+        "cpu": 27.06,
+        "asp": 81.90
+      }
+    ]
+  }
+]

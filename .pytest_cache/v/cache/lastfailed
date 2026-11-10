@@ -1,6 +1,10 @@
 {
   "tests/test_excel_store.py::test_push_metrics_updates_matching_year_workbooks": true,
   "tests/test_excel_store.py::test_push_metrics_reports_missing_workbook_without_creating_it": true,
-  "tests/test_excel_store.py::test_push_metrics_uses_selected_annual_workbooks": true,
-  "tests/test_excel_store.py::test_push_metrics_updates_multiple_server_sheets_as_one_batch": true
+  "tests/test_excel_store.py::test_push_metrics_updates_multiple_server_sheets_as_one_batch": true,
+  "tests/test_review_fixes.py::test_asp_warning_threshold_tracks_2_percent_below_configured_threshold": true,
+  "tests/test_hourly_log_recording.py::test_settings_page_contains_lpar_configuration_editor": true,
+  "tests/test_hourly_log_recording.py::test_settings_controls_lock_while_monitoring": true,
+  "tests/test_hourly_log_recording.py::test_generate_previous_month_report_creates_file_even_when_not_first_of_month": true,
+  "tests/test_review_fixes.py::test_backup_data_is_stored_and_filtered_by_start_month": true
 }

@@ -12,6 +12,7 @@ import smtplib
 import queue
 import socket
 import ctypes
+import ipaddress
 from ctypes import wintypes
 from datetime import datetime, timedelta
 from email.message import EmailMessage
@@ -31,7 +32,11 @@ from config import (
     EXPECTED_WEB_APPS,
 )
 from ui.setcreds import load_email_alerts
-from excel_store import push_daily_metrics_to_excel, push_metrics_to_excel
+from excel_store import (
+    push_daily_metrics_to_excel,
+    push_metrics_to_excel,
+    push_monthly_backup_to_excel,
+)
 from system_logging import SYSTEM_LOGGER
 
 _LOG_WRITE_LOCK = threading.Lock()
@@ -41,8 +46,12 @@ _LOG_QUEUE = queue.Queue()
 _LOGGER_THREAD = None
 _EXCEL_SYNCED_HOURS = {}
 _EXCEL_PENDING_HOURS = {}
+_EXCEL_PENDING_RETRY_AT = {}
+_EXCEL_RETRY_DELAY_SECONDS = 30 * 60
 _EXCEL_FINALIZED_HOURS = set()
 _EXCEL_SYNC_LOCK = threading.Lock()
+_EXCEL_SERVER_HOST_NAMES = {}
+_EXCEL_SERVER_HOST_NAMES_LOCK = threading.Lock()
 _EXCEL_DAILY_SYNC_START_LOCK = threading.Lock()
 _EXCEL_DAILY_SYNC_STARTED = False
 _ALERT_STATE_LOCK = threading.Lock()
@@ -222,20 +231,20 @@ class MonthlyBackupFetchThread(QThread):
     QUERY = """
         SELECT
             MIN(CASE WHEN MESSAGE_ID = 'BRM1380' THEN MESSAGE_TIMESTAMP END) AS START_TIME,
-            MAX(CASE WHEN MESSAGE_ID IN ('BRM1049', 'BRM10A1') THEN MESSAGE_TIMESTAMP END) AS END_TIME,
+            MAX(CASE WHEN MESSAGE_ID IN ('BRM1049', 'BRM10A1', 'BRM4116') THEN MESSAGE_TIMESTAMP END) AS END_TIME,
             TIMESTAMPDIFF(
                 2,
                 CHAR(
-                    MAX(CASE WHEN MESSAGE_ID IN ('BRM1049', 'BRM10A1') THEN MESSAGE_TIMESTAMP END)
+                    MAX(CASE WHEN MESSAGE_ID IN ('BRM1049', 'BRM10A1', 'BRM4116') THEN MESSAGE_TIMESTAMP END)
                     - MIN(CASE WHEN MESSAGE_ID = 'BRM1380' THEN MESSAGE_TIMESTAMP END)
                 )
             ) AS DURATION_SECONDS,
-            MAX(CASE WHEN MESSAGE_ID = 'BRM10A1' THEN 1 ELSE 0 END) AS HAS_COMPLETION_ERRORS
+            MAX(CASE WHEN MESSAGE_ID IN ('BRM10A1', 'BRM4116') THEN 1 ELSE 0 END) AS HAS_COMPLETION_ERRORS
         FROM QUSRBRM.BRMS_LOG_INFO
         WHERE MESSAGE_TEXT LIKE ?
           AND MESSAGE_TIMESTAMP >= ?
           AND MESSAGE_TIMESTAMP < ?
-          AND MESSAGE_ID IN ('BRM1380', 'BRM1049', 'BRM10A1')
+          AND MESSAGE_ID IN ('BRM1380', 'BRM1049', 'BRM10A1', 'BRM4116')
     """
     RUNNING_QUERY = """
         WITH LATEST_START AS (
@@ -248,11 +257,11 @@ class MonthlyBackupFetchThread(QThread):
         SELECT
             LATEST_START.START_TIME,
             MIN(BRM_END.MESSAGE_TIMESTAMP) AS END_TIME,
-            MAX(CASE WHEN BRM_END.MESSAGE_ID = 'BRM10A1' THEN 1 ELSE 0 END) AS HAS_COMPLETION_ERRORS
+            MAX(CASE WHEN BRM_END.MESSAGE_ID IN ('BRM10A1', 'BRM4116') THEN 1 ELSE 0 END) AS HAS_COMPLETION_ERRORS
         FROM LATEST_START
         LEFT JOIN QUSRBRM.BRMS_LOG_INFO AS BRM_END
           ON BRM_END.MESSAGE_TEXT LIKE ?
-         AND BRM_END.MESSAGE_ID IN ('BRM1049', 'BRM10A1')
+         AND BRM_END.MESSAGE_ID IN ('BRM1049', 'BRM10A1', 'BRM4116')
          AND BRM_END.MESSAGE_TIMESTAMP >= LATEST_START.START_TIME
         GROUP BY LATEST_START.START_TIME
     """
@@ -419,12 +428,38 @@ def check_database_connection(host, db, username, password):
                 fetchone()
             except TypeError:
                 pass
+        try:
+            cursor.execute("SELECT HOST_NAME FROM TABLE(QSYS2.SYSTEM_STATUS())")
+            host_row = cursor.fetchone()
+            host_name = str(host_row[0]).strip() if host_row and host_row[0] else ""
+        except Exception as exc:
+            SYSTEM_LOGGER.warning(
+                "Login succeeded but the IBM i host name could not be resolved for %s: %s",
+                host,
+                exc,
+            )
+            host_name = ""
+        if not host_name:
+            SYSTEM_LOGGER.warning(
+                "Login succeeded but the IBM i host name was empty for %s",
+                host,
+            )
+        return host_name
     finally:
         if conn is not None:
             try:
                 conn.close()
             except Exception:
                 pass
+
+
+def set_excel_server_host_names(host_names):
+    with _EXCEL_SERVER_HOST_NAMES_LOCK:
+        for server_key, host_name in host_names.items():
+            normalized_key = str(server_key).strip().casefold()
+            normalized_name = str(host_name or "").strip()
+            if normalized_key and normalized_name:
+                _EXCEL_SERVER_HOST_NAMES[normalized_key] = normalized_name
 
 
 def _object_statistics_cache_key(host, db, username):
@@ -587,7 +622,7 @@ def _normalize_web_app_job_name(name):
     return str(name or "").strip().upper().replace(" ", "_")
 
 
-def _fetch_web_app_jobs(cursor, configured_web_apps):
+def _fetch_web_app_jobs(cursor, configured_web_apps, active_jobs_detail=None):
     app_names = {}
     for entry in configured_web_apps or []:
         if isinstance(entry, dict):
@@ -625,6 +660,25 @@ def _fetch_web_app_jobs(cursor, configured_web_apps):
             if _normalize_web_app_job_name(job["job_name"].rsplit("/", 1)[-1]) == job_name:
                 matching_jobs.append(job)
         jobs_by_app[app_name] = matching_jobs
+
+    active_jobs = active_jobs_detail if isinstance(active_jobs_detail, list) else []
+    for app_name, app_jobs in jobs_by_app.items():
+        normalized_app_name = _normalize_web_app_job_name(app_name)
+        known_job_names = {
+            str(job.get("job_name") or "").strip().upper()
+            for job in app_jobs
+            if isinstance(job, dict)
+        }
+        for job in active_jobs:
+            if not isinstance(job, dict):
+                continue
+            job_name = str(job.get("job_name") or "").strip()
+            unqualified_name = _normalize_web_app_job_name(job_name.rsplit("/", 1)[-1])
+            normalized_job_name = job_name.upper()
+            if unqualified_name == normalized_app_name and normalized_job_name not in known_job_names:
+                app_jobs.append(job)
+                known_job_names.add(normalized_job_name)
+
     return jobs_by_app
 
 
@@ -638,89 +692,6 @@ def _active_job_detail_from_row(row):
         "job_status": str(row[5]).strip() if row[5] is not None else "",
         "temporary_storage": row[6] if row[6] is not None else 0,
     }
-
-
-def _fetch_web_app_ports(cursor, configured_web_apps):
-    apps = []
-    valid_ports = set()
-    for entry in configured_web_apps or []:
-        if isinstance(entry, dict):
-            app_name = entry.get("job_name") or entry.get("name") or entry.get("job") or ""
-            port_value = entry.get("port")
-        elif isinstance(entry, str) and ":" in entry:
-            app_name, port_value = entry.split(":", 1)
-        else:
-            continue
-
-        app_name = str(app_name).strip().upper()
-        try:
-            port = int(port_value)
-        except (TypeError, ValueError):
-            continue
-        if not app_name:
-            continue
-        is_valid = 1 <= port <= 65535
-        apps.append({"name": app_name, "port": port, "is_valid": is_valid})
-        if is_valid:
-            valid_ports.add(port)
-
-    active_ports = set()
-    if valid_ports:
-        port_values = sorted(valid_ports)
-        placeholders = ", ".join("?" for _ in port_values)
-        cursor.execute(
-            f"""
-            SELECT DISTINCT LOCAL_PORT
-            FROM QSYS2.NETSTAT_INFO
-            WHERE LOCAL_PORT IN ({placeholders})
-              AND TCP_STATE = 'LISTEN'
-            ORDER BY LOCAL_PORT
-            """,
-            *port_values,
-        )
-        active_ports = {
-            int(row[0]) for row in cursor.fetchall()
-            if row[0] is not None and str(row[0]).isdigit()
-        }
-
-    return [
-        {
-            "name": app["name"],
-            "port": app["port"],
-            "is_up": app["is_valid"] and app["port"] in active_ports,
-        }
-        for app in apps
-    ]
-
-
-def _fetch_web_app_jobs_after_port_check(cursor, web_app_ports, active_jobs_detail=None):
-    jobs_by_app = _fetch_web_app_jobs(cursor, web_app_ports or [])
-    active_jobs = active_jobs_detail if isinstance(active_jobs_detail, list) else []
-
-    for app in web_app_ports or []:
-        if not isinstance(app, dict):
-            continue
-        app_name = str(app.get("name") or "").strip().upper()
-        if not app_name:
-            continue
-
-        app_jobs = jobs_by_app.setdefault(app_name, [])
-        known_job_names = {
-            str(job.get("job_name") or "").strip().upper()
-            for job in app_jobs
-            if isinstance(job, dict)
-        }
-        for job in active_jobs:
-            if not isinstance(job, dict):
-                continue
-            job_name = str(job.get("job_name") or "").strip()
-            unqualified_name = _normalize_web_app_job_name(job_name.rsplit("/", 1)[-1])
-            normalized_job_name = job_name.upper()
-            if unqualified_name == _normalize_web_app_job_name(app_name) and normalized_job_name not in known_job_names:
-                app_jobs.append(job)
-                known_job_names.add(normalized_job_name)
-
-    return jobs_by_app
 
 
 def _normalize_recipients(value):
@@ -2005,6 +1976,8 @@ def _sync_metrics_to_excel(record):
 def _retry_pending_excel_hours():
     expected_servers = {str(key).strip() for key in SERVER_CONFIGS}
     for pending_hour, pending_records in list(_EXCEL_PENDING_HOURS.items()):
+        if time.monotonic() < _EXCEL_PENDING_RETRY_AT.get(pending_hour, 0):
+            continue
         is_finalized = pending_hour in _EXCEL_FINALIZED_HOURS
         if (
             expected_servers
@@ -2082,18 +2055,70 @@ def _retry_pending_excel_hours():
                 )
 
             if global_failure or metric_failures:
+                _EXCEL_PENDING_RETRY_AT[pending_hour] = (
+                    time.monotonic() + _EXCEL_RETRY_DELAY_SECONDS
+                )
                 SYSTEM_LOGGER.warning(
-                    "Hourly Excel batch for %s remains pending and will be retried",
+                    "Hourly Excel batch for %s remains pending and will be retried in %d seconds",
                     pending_hour,
+                    _EXCEL_RETRY_DELAY_SECONDS,
                 )
                 continue
             _EXCEL_SYNCED_HOURS[pending_hour] = True
             _EXCEL_PENDING_HOURS.pop(pending_hour, None)
+            _EXCEL_PENDING_RETRY_AT.pop(pending_hour, None)
             _EXCEL_FINALIZED_HOURS.discard(pending_hour)
         except Exception:
+            _EXCEL_PENDING_RETRY_AT[pending_hour] = (
+                time.monotonic() + _EXCEL_RETRY_DELAY_SECONDS
+            )
             SYSTEM_LOGGER.exception(
                 "Local LPAR history was saved, but the hourly Excel batch update failed"
             )
+
+
+def _monthly_backup_history_for_date(target_date):
+    month_key = target_date.strftime("%Y-%m")
+    file_name = f"monthly_backup_{month_key}.json"
+    backup_data = {}
+    read_failed = False
+
+    for logs_dir in get_all_logs_dirs():
+        file_path = os.path.join(logs_dir, file_name)
+        if not os.path.isfile(file_path):
+            continue
+        try:
+            with open(file_path, "r", encoding="utf-8") as file:
+                data = json.load(file)
+        except (OSError, ValueError) as exc:
+            SYSTEM_LOGGER.error(
+                "Could not read monthly backup history for Excel export %s: %s",
+                file_path,
+                exc,
+            )
+            read_failed = True
+            continue
+
+        if not isinstance(data, dict):
+            SYSTEM_LOGGER.error(
+                "Monthly backup history for Excel export must contain an object: %s",
+                file_path,
+            )
+            read_failed = True
+            continue
+
+        for server_key, records in data.items():
+            if server_key == "_errors":
+                continue
+            if isinstance(records, dict):
+                records = [records]
+            if not isinstance(records, list):
+                continue
+            backup_data.setdefault(server_key, []).extend(
+                record for record in records if isinstance(record, dict)
+            )
+
+    return backup_data, read_failed
 
 
 def _sync_daily_excel_logs(target_date):
@@ -2110,6 +2135,9 @@ def _sync_daily_excel_logs(target_date):
 
     file_name = f"lpar_history_{date_key}.json"
     dated_records = []
+    server_names = {}
+    with _EXCEL_SERVER_HOST_NAMES_LOCK:
+        server_names.update(_EXCEL_SERVER_HOST_NAMES)
     read_failed = False
 
     for logs_dir in get_all_logs_dirs():
@@ -2150,11 +2178,25 @@ def _sync_daily_excel_logs(target_date):
                 ).strip()
                 if not server_key:
                     continue
+                for field in ("host_name", "server_name", "lpar", "server"):
+                    candidate = str(record.get(field) or "").strip()
+                    if not candidate or candidate.casefold() == server_key.casefold():
+                        continue
+                    try:
+                        ipaddress.ip_address(candidate)
+                    except ValueError:
+                        server_names.setdefault(server_key.casefold(), candidate)
+                        break
+                with _EXCEL_SERVER_HOST_NAMES_LOCK:
+                    resolved_host_name = _EXCEL_SERVER_HOST_NAMES.get(
+                        server_key.casefold(),
+                        "",
+                    )
                 excel_record = {
                     "timestamp": timestamp,
                     "config_key": server_key,
-                    "host_name": record.get("host_name", ""),
-                    "server_name": record.get("server_name", ""),
+                    "host_name": resolved_host_name or record.get("host_name", ""),
+                    "server_name": resolved_host_name or record.get("server_name", ""),
                     "lpar": record.get("lpar", server_key),
                     "server": record.get("server", server_key),
                     "cpu": record.get("cpu"),
@@ -2162,7 +2204,12 @@ def _sync_daily_excel_logs(target_date):
                 }
                 dated_records.append((recorded_at, server_key, excel_record))
 
-    if not dated_records:
+    monthly_backup_data, monthly_read_failed = _monthly_backup_history_for_date(
+        target_date
+    )
+    read_failed = read_failed or monthly_read_failed
+
+    if not dated_records and not monthly_backup_data:
         SYSTEM_LOGGER.info("No saved hourly records found for Excel catch-up on %s", date_key)
         if not read_failed:
             pending_days.discard(date_key)
@@ -2176,11 +2223,22 @@ def _sync_daily_excel_logs(target_date):
 
     sync_failed = False
     with _EXCEL_SYNC_LOCK:
-        errors = push_daily_metrics_to_excel([
-            record
-            for records in hourly_records.values()
-            for record in records.values()
-        ])
+        errors = (
+            push_daily_metrics_to_excel([
+                record
+                for records in hourly_records.values()
+                for record in records.values()
+            ])
+            if hourly_records
+            else []
+        )
+        errors.extend(
+            push_monthly_backup_to_excel(
+                monthly_backup_data,
+                target_date,
+                server_names,
+            )
+        )
         for error in errors:
             if " batch update failed:" in error or error.startswith("Excel export failed:"):
                 sync_failed = True
@@ -2192,6 +2250,7 @@ def _sync_daily_excel_logs(target_date):
             for hour_key in hourly_records:
                 _EXCEL_SYNCED_HOURS[hour_key] = True
                 _EXCEL_PENDING_HOURS.pop(hour_key, None)
+                _EXCEL_PENDING_RETRY_AT.pop(hour_key, None)
                 _EXCEL_FINALIZED_HOURS.discard(hour_key)
 
     if not sync_failed and not read_failed:
@@ -2705,20 +2764,11 @@ class SingleLparRunnable(QRunnable):
             except Exception as e:
                 metric_errors.append(f"ports: {e}")
 
-            web_app_ports = []
-            try:
-                web_app_ports = _fetch_web_app_ports(
-                    cursor,
-                    EXPECTED_WEB_APPS.get(self.server, []),
-                )
-            except Exception as e:
-                metric_errors.append(f"web app ports: {e}")
-
             web_app_jobs_detail = {}
             try:
-                web_app_jobs_detail = _fetch_web_app_jobs_after_port_check(
+                web_app_jobs_detail = _fetch_web_app_jobs(
                     cursor,
-                    web_app_ports,
+                    EXPECTED_WEB_APPS.get(self.server, []),
                     active_jobs_detail,
                 )
             except Exception as e:
@@ -2734,7 +2784,6 @@ class SingleLparRunnable(QRunnable):
                 "jobs": active_jobs,
                 "active_jobs_detail": active_jobs_detail,
                 "web_app_jobs_detail": web_app_jobs_detail,
-                "web_app_ports": web_app_ports,
                 "subsystems": active_subsystems,
                 "ports": port_status_list,
             }
@@ -2759,7 +2808,6 @@ class SingleLparRunnable(QRunnable):
                     "jobs": 0,
                     "active_jobs_detail": [],
                     "web_app_jobs_detail": {},
-                    "web_app_ports": [],
                     "subsystems": [],
                     "ports": [],
                 }
@@ -2775,7 +2823,6 @@ class SingleLparRunnable(QRunnable):
                     "jobs": 0,
                     "active_jobs_detail": [],
                     "web_app_jobs_detail": {},
-                    "web_app_ports": [],
                     "subsystems": [],
                     "ports": [],
                 }

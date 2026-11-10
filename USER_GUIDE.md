@@ -26,6 +26,8 @@ At launch, the application checks its build expiration and whether the installed
 
 During startup, the app keeps its controls unavailable while it finishes the daily log-to-Excel catch-up. Wait for the startup screen to close before using the dashboard.
 
+The app adjusts its window and dashboard card grid to the available display. On smaller screens, maximize the window and scroll within long pages or Settings tabs to reach content.
+
 ## 3. Add your IBM i systems
 
 1. Open **Settings & Credentials** and select **LPAR Configuration**.
@@ -43,7 +45,7 @@ The expected subsystem, port, and web-app settings tell the dashboard what to ch
 
 ## 4. Check your credentials
 
-1. In **Settings & Credentials**, select **Credentials**.
+1. In **Settings & Credentials**, select **Credentials & Diagnostics**.
 2. Enter your IBM i username and password.
 3. Connect to the required VPN, then click **Check Login Creds**.
 4. Wait for the result. The app reports which configured systems accepted the credentials.
@@ -60,11 +62,13 @@ The **Start Auto-Refresh** button is enabled only when at least one system is co
 
 Warnings appear in orange and do not sound. Critical ASP alerts appear in red and sound. Email alerts require valid SMTP settings and a server that accepts the configured sender, recipients, and credentials.
 
+The **Weekly ASP/CPU Report Email** section has its own enable checkbox and independent SMTP server, port, TLS, username/password, sender, and recipient settings. These do not change ASP alert email settings. Use **Send Weekly Test Email** to verify this profile. When enabled, the app checks at local midnight at the start of Saturday, then exports the completed Saturday–Friday hourly ASP/CPU matrix and emails it as an Excel attachment to the weekly recipients. The app also checks on startup to catch up if it was closed at the scheduled time. The workbook is saved under the selected log root in the year and month folder of the week-ending Friday. If report data is not ready or email delivery fails, the app logs the issue and retries hourly while it remains open.
+
 ## 6. Monitor systems
 
 1. Open **Live Monitor**.
 2. Click **Start Auto-Refresh**.
-3. Review each system card for connection status, CPU and ASP usage, active jobs, subsystem health, and configured service or web-app checks. For web apps, the running-job count and listener-port status are separate: a running job can appear even when its port is not listening. Expand **Web Applications** to see a stopped or invalid port highlighted.
+3. Review each system card for connection status, CPU and ASP usage, active jobs, subsystem health, and configured service or web-app checks. Web-app health is based on active IBM i jobs; network service ports are monitored separately. Expand **Web Applications** to inspect matching jobs.
 4. Select a card or its details to inspect additional system information.
 5. Click **Stop Auto-Refresh** when you want to pause monitoring. Stop monitoring before changing settings.
 
@@ -86,7 +90,7 @@ Daily monitoring history is saved as JSON under the selected log root, organized
 
 If your organization uses hourly workbooks, select the ASP and CPU workbooks separately in **Settings & Credentials** > **Storage & System**, or leave the selectors blank and place `BY - ASP YYYY.xlsx` and `BY - CPU YYYY.xlsx` in the matching year folder under the selected log root. Each workbook must have a worksheet named for the IBM i host and the expected date/hour cells from the workbook template. If a selected workbook follows the standard annual filename and year-folder layout, the app uses the corresponding year's workbook. After all configured systems report for the hour, the app writes the readings.
 
-Excel locks a workbook while it is open, so the app cannot update that file at the same time. Monitoring data is saved to JSON first; if a workbook is open or temporarily unavailable, the hourly Excel batch stays pending and is retried on later monitoring refreshes. At 12:00 AM, the app also replays the previous day's saved readings from 00:00 through 23:00 into any empty hourly cells. This catch-up runs while the app is open; it also replays the previous day when the app is next started. Existing workbook values are left unchanged. Close the workbook to allow a retry. Missing workbooks, mismatched worksheet names, or missing date/hour cells are reported in **System Logs**.
+Excel locks a workbook while it is open, so the app cannot update that file at the same time. Monitoring data is saved to JSON first; if a workbook is open or temporarily unavailable, the hourly Excel batch stays pending and is retried on later monitoring refreshes. At 12:00 AM, the app also replays the previous day's saved readings from 00:00 through 23:00 into any empty hourly cells. Startup and midnight catch-up runs only after login resolves the host names for all configured LPARs; older IP-keyed history is matched to those resolved names. Existing workbook values are left unchanged. Close the workbook to allow a retry. Missing workbooks, mismatched worksheet names, or missing date/hour cells are reported in **System Logs**.
 
 ## 8. Review backup history
 
@@ -108,7 +112,7 @@ After credential validation, open **Backup Management**. Select a system and mon
 | The app cannot connect to an IBM i system | Connect to the VPN, confirm the IBM i host and database name, check the ODBC driver, and validate the account credentials. |
 | Credential check says the VPN is unavailable | Connect to the organization's VPN and contact your administrator if your workstation does not receive the expected `10.212` IPv4 address. |
 | A system card shows a connection or query error | Check that the IBM i system is reachable and that the account has permission to run the required queries. Review **Settings & Credentials** > **System Logs**. |
-| A web-app job is present but the application shows a stopped port | Expand **Web Applications** on the system card. The port is highlighted when IBM i reports that it is not listening; a running job alone does not confirm the listener is available. |
+| A configured web app shows no active jobs | Expand **Web Applications** on the system card and confirm the configured job name matches the IBM i job name. |
 | Email test or alerts fail | Confirm SMTP host, port, TLS option, sender/recipient addresses, account credentials, and network access to the mail server. |
 | Hourly Excel values are not updated | Confirm the year folder and both workbook names are correct, workbooks are closed, and worksheets/date-hour cells match the required template. JSON history should still be available. |
 | Backup Management is empty or incomplete | Validate credentials and confirm the configured backup job names and IBM i backup history. |

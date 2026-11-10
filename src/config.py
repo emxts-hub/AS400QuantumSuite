@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from system_logging import SYSTEM_LOGGER
 
 APP_NAME = "AS400 Quantum Suite"
-APP_VERSION = "5.7.1"
+APP_VERSION = "5.7.2"
 USER_PROFILE = os.environ.get("USERPROFILE") or os.path.expanduser("~")
 DEFAULT_ONEDRIVE_SHAREPOINT_PATH = os.path.join(
     USER_PROFILE,
@@ -337,6 +337,16 @@ DEFAULT_EMAIL_ALERTS = {
     "refresh_interval_ms": 0,
     "log_dedupe_seconds": 60,
 }
+DEFAULT_WEEKLY_REPORT_EMAIL = {
+    "enabled": False,
+    "smtp_server": "",
+    "port": 587,
+    "use_tls": True,
+    "username": "",
+    "password": "",
+    "from_address": "",
+    "to_addresses": [],
+}
 
 _JSON_APPEND_LOCK = threading.Lock()
 
@@ -361,7 +371,7 @@ def load_expected_ports():
 
 
 def load_expected_web_apps():
-    """Loads configured web app job-name/port pairs from config.json or returns default."""
+    """Loads configured web app job names from config.json or returns default."""
     return _load_config_mapping("EXPECTED_WEB_APPS", DEFAULT_EXPECTED_WEB_APPS)
 
 

@@ -474,6 +474,108 @@ class LogViewerWidget(QWidget):
                     return True
         return False
 
+    def _monthly_backup_hours(self, selected_date):
+        try:
+            day_start = datetime.strptime(selected_date, "%Y-%m-%d")
+        except ValueError:
+            return {}
+
+        server_lpars = {}
+        for batches in self.log_data_store.values():
+            for _, records in batches:
+                for record in records:
+                    if not isinstance(record, dict):
+                        continue
+                    lpar = self._normalize_server_name(
+                        record.get("host_name")
+                        or record.get("server_name")
+                        or record.get("lpar")
+                        or record.get("server")
+                    )
+                    if lpar:
+                        for server_key in (record.get("config_key"), record.get("ip")):
+                            server_identity = str(server_key or "").strip().casefold()
+                            if server_identity:
+                                server_lpars[server_identity] = lpar.casefold()
+
+        month_file = f"monthly_backup_{selected_date[:7]}.json"
+        backup_paths = {
+            os.path.join(logs_dir, month_file)
+            for logs_dir in get_all_logs_dirs()
+        }
+        marked_hours = {}
+        day_end = day_start + timedelta(days=1)
+
+        for path in sorted(backup_paths):
+            if not os.path.isfile(path):
+                continue
+            try:
+                with open(path, "r", encoding="utf-8") as file:
+                    backup_data = json.load(file)
+            except (OSError, ValueError) as exc:
+                SYSTEM_LOGGER.warning(
+                    "Could not read monthly backup history %s: %s", path, exc
+                )
+                continue
+
+            if not isinstance(backup_data, dict):
+                SYSTEM_LOGGER.warning(
+                    "Monthly backup history must contain a JSON object: %s", path
+                )
+                continue
+
+            for server_key, records in backup_data.items():
+                if server_key == "_errors":
+                    continue
+                if isinstance(records, dict):
+                    records = [records]
+                if not isinstance(records, list):
+                    continue
+
+                server_identity = str(server_key).strip().casefold()
+                lpar = server_lpars.get(server_identity) or self._normalize_server_name(server_key)
+                if not lpar:
+                    continue
+
+                for record in records:
+                    if not isinstance(record, dict) or not record.get("start_time"):
+                        continue
+                    try:
+                        start = datetime.fromisoformat(
+                            str(record["start_time"]).replace("Z", "+00:00")
+                        )
+                        end_value = record.get("end_time")
+                        end = (
+                            datetime.fromisoformat(str(end_value).replace("Z", "+00:00"))
+                            if end_value
+                            else datetime.now(start.tzinfo)
+                        )
+                    except (TypeError, ValueError):
+                        SYSTEM_LOGGER.warning(
+                            "Skipping monthly backup record with invalid timestamps in %s",
+                            path,
+                        )
+                        continue
+
+                    if start.tzinfo is not None:
+                        start = start.astimezone().replace(tzinfo=None)
+                    if end.tzinfo is not None:
+                        end = end.astimezone().replace(tzinfo=None)
+
+                    interval_start = max(start, day_start)
+                    interval_end = min(end, day_end)
+                    if interval_end <= interval_start:
+                        continue
+
+                    hours = marked_hours.setdefault(lpar, set())
+                    for hour in range(24):
+                        hour_start = day_start + timedelta(hours=hour)
+                        hour_end = hour_start + timedelta(hours=1)
+                        if hour_start < interval_end and hour_end > interval_start:
+                            hours.add(hour)
+
+        return marked_hours
+
     def set_theme(self, is_dark_theme):
         self.is_dark_theme = is_dark_theme
         if is_dark_theme:
@@ -601,10 +703,11 @@ class LogViewerWidget(QWidget):
         assert vertical_header is not None
         vertical_header.hide()
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         header = table.horizontalHeader()
         assert header is not None
+        header.setMinimumSectionSize(42)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(len(self.HOURS) + 1, QHeaderView.ResizeMode.Fixed)
@@ -818,6 +921,7 @@ class LogViewerWidget(QWidget):
 
         combined_store = self.get_combined_log_data_store()
         day_batches = combined_store.get(selected_date, [])
+        monthly_hours = self._monthly_backup_hours(selected_date)
 
         if not self.active_lpars:
             if self.log_data_store:
@@ -869,6 +973,19 @@ class LogViewerWidget(QWidget):
                         cpu_matrix[lpar][hour_idx] = f"{cpu_val:.2f}%"
                         seen_usage_slots.add((lpar, hour_idx))
 
+        active_lpars_by_key = {
+            name.casefold(): name for name in self.active_lpars
+        }
+        for lpar, hours in monthly_hours.items():
+            display_lpar = active_lpars_by_key.get(lpar)
+            if display_lpar is None:
+                continue
+            for hour_idx in hours:
+                if asp_matrix[display_lpar][hour_idx] == "N/A%":
+                    asp_matrix[display_lpar][hour_idx] = "MONTHLY"
+                if cpu_matrix[display_lpar][hour_idx] == "N/A%":
+                    cpu_matrix[display_lpar][hour_idx] = "MONTHLY"
+
         self._fill_matrix(self.asp_table, asp_matrix)
         self._fill_matrix(self.cpu_table, cpu_matrix)
         self._fill_stream_table(day_batches)
@@ -887,7 +1004,9 @@ class LogViewerWidget(QWidget):
                 row_vals.append(val)
                 item = QTableWidgetItem(val)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if val != "N/A%":
+                if val == "MONTHLY":
+                    item.setForeground(QColor("#f2cc60"))
+                elif val != "N/A%":
                     item.setForeground(QColor("#58a6ff"))
                 else:
                     item.setForeground(QColor("#484f58"))

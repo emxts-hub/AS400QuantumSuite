@@ -108,4 +108,5 @@ def clear_system_logs():
         stream.flush()
 
         memory_handler.records.clear()
+        memory_handler.next_record_id = 0
         return memory_handler.next_record_id

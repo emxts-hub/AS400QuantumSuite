@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QHeaderView,
+    QScrollArea,
     QSizePolicy,
     QWidget,
 )
@@ -231,11 +232,21 @@ class BackupManagementWidget(QWidget):
         divider.setFrameShape(QFrame.Shape.HLine)
         layout.addWidget(divider)
 
-        content = QWidget(self)
+        self.content_scroll_area = QScrollArea(self)
+        self.content_scroll_area.setWidgetResizable(True)
+        self.content_scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.content_scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.content_scroll_area.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(24, 16, 24, 24)
         content_layout.setSpacing(8)
-        layout.addWidget(content, stretch=1)
+        self.content_scroll_area.setWidget(content)
+        layout.addWidget(self.content_scroll_area, stretch=1)
         subtitle = QLabel("Selected systems - averages for the selected month")
         subtitle.setFont(QFont("Segoe UI", 10, QFont.Weight.Normal))
         content_layout.addWidget(subtitle)
@@ -246,6 +257,7 @@ class BackupManagementWidget(QWidget):
         for server_name in sorted(self.server_configs):
             button = QPushButton(server_name)
             button.setProperty("server_key", server_name)
+            button.setMaximumWidth(100)
             button.setCheckable(True)
             button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
             button.setToolTip(f"View backup data for {server_name}")
@@ -358,10 +370,7 @@ class BackupManagementWidget(QWidget):
         if vertical_header is not None:
             vertical_header.setVisible(False)
         if horizontal_header is not None:
-            horizontal_header.setStretchLastSection(True)
-            horizontal_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-            for column in range(1, 5):
-                horizontal_header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+            horizontal_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         if compact:
             table.setFixedHeight(76)
             table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
